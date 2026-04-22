@@ -35,6 +35,22 @@
 {{ end }}
 
 {{/*
+  Expose Hugo's baseURL to JS so nav-enhance.js can build absolute links
+  whether the site is served at / (local dev) or /<repo>/ (GitHub Pages).
+*/}}
+<script>window.HUGO_BASE_URL = {{ site.BaseURL | jsonify }};</script>
+
+{{/*
+  Navbar enhancement — makes Fundamentals / Agents / Prompt Library /
+  Security Remediation clickable as links to their section landing pages,
+  and opens their dropdowns on hover. See assets/js/nav-enhance.js for
+  the full rationale.
+*/}}
+{{ with resources.Get "js/nav-enhance.js" | minify | fingerprint }}
+  <script src="{{ .RelPermalink }}" integrity="{{ .Data.Integrity }}" defer></script>
+{{ end }}
+
+{{/*
   Strip any PWA manifest the theme may have injected earlier in <head>,
   and any external <link rel="preconnect"> / <link rel="dns-prefetch">
   hints that would advertise an external dependency. This runs inline

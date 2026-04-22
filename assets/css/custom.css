@@ -721,3 +721,41 @@ html:not(.dark) .mermaid-modal__close {
     display: none; /* just show the icon on tight screens */
   }
 }
+
+/* ---------- 12. Navbar dropdown triggers ---------------------------------- */
+/*
+   nav-enhance.js converts Fundamentals / Agents / Prompt Library /
+   Security Remediation into clickable link-triggers that also open their
+   dropdown on hover. The rules below (a) give those triggers the same
+   hover/active colour treatment a regular top-nav link has, and (b) create
+   a small invisible "hover-bridge" below the trigger so the cursor can
+   glide diagonally down into the dropdown panel without breaking hover.
+*/
+.nextra-nav-container nav button[role="link"][data-nav-href] {
+  cursor: pointer;
+  position: relative;
+}
+
+.dark .nextra-nav-container nav button[role="link"][data-nav-href]:hover,
+.dark .nextra-nav-container nav button[role="link"][data-nav-href][aria-expanded="true"] {
+  color: var(--arr-accent-2);
+}
+
+.nextra-nav-container nav button[role="link"][data-nav-href]:focus-visible {
+  outline: 2px solid var(--arr-accent-2);
+  outline-offset: 3px;
+  border-radius: 6px;
+}
+
+/* Invisible hover-bridge between the trigger and the panel. Only painted
+   when the trigger's own dropdown is open, so it can't accidentally
+   capture hover for adjacent menu items. */
+.nextra-nav-container nav button[role="link"][data-nav-href][aria-expanded="true"]::after {
+  content: "";
+  position: absolute;
+  left: -4px;
+  right: -4px;
+  top: 100%;
+  height: 10px;
+  pointer-events: auto;
+}
