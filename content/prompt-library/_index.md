@@ -111,6 +111,19 @@ skim one and know what to expect from the next:
 If you're writing a new entry, match that outline and a reviewer
 will have a much easier time accepting the PR.
 
+## Other prompt libraries worth knowing
+
+The library on this site focuses on agentic remediation
+specifically. For a curated list of **external prompt
+collections** worth borrowing from — OWASP, the major agent
+vendors' published examples, awesome-style community lists, and
+the framework-vendor reference prompts — see
+[Reputable Prompt Sources]({{< relref "/prompt-library/sources" >}}).
+
+{{< cards >}}
+  {{< card link="/prompt-library/sources/" title="Reputable Prompt Sources" subtitle="Curated external libraries: OWASP, vendor docs, community awesome-lists, and reference prompts that pair well with the recipes here." >}}
+{{< /cards >}}
+
 ## MCP Server access
 
 A great prompt is only half the recipe — the other half is the
@@ -187,4 +200,5 @@ team that will own the prompt.
 
 - [Docs]({{< relref "/docs" >}}) — what this site is for
 - [Agents]({{< relref "/agents" >}}) — per-tool remediation recipes
+- [Reputable Prompt Sources]({{< relref "/prompt-library/sources" >}}) — external prompt libraries to mine for ideas
 - [Contribute]({{< relref "/contribute" >}}) — how to submit a prompt

@@ -207,6 +207,51 @@ into any run.
   platform compromise shows up as anomalous run-ID patterns in
   the MCP gateway logs.
 
+### 7. Persistent-memory and scratchpad poisoning
+
+**What it is.** Agents increasingly keep state across runs — a
+file-system scratchpad, a notes file, a managed "memory" store, a
+vector DB of past tasks. Anything the agent writes and re-reads
+becomes a second prompt surface: an attacker who can plant content
+that the agent will later read back (via a crafted finding, a
+malicious PR comment, a poisoned tool response) gets instructions
+that persist beyond the injecting run. The attack is the same shape
+as classic prompt injection, but the lifetime is longer — the
+payload lands once and fires every time the memory is re-read.
+
+**How it gets in:**
+
+- A crafted finding or advisory that asks the agent to "remember
+  for next time" the attacker's instructions, and the agent dutifully
+  writes them into its notes file.
+- A PR comment or ticket body the agent summarises into its memory
+  layer; the summary step sanitises nothing.
+- A compromised MCP tool response the agent caches for reuse.
+- A poisoned skill or memory file in a shared team workspace, so
+  every agent that loads the workspace inherits the payload.
+
+**Mitigations:**
+
+- **Treat memory as a prompt-layer input.** Apply the same tagging,
+  size caps, and schema validation to content the agent wrote
+  yesterday that you apply to content an MCP server returned today.
+  "I wrote this" is not a trust signal.
+- **Scope memory per-task, not per-agent.** A scratchpad that
+  survives one finding's remediation is fine; a pool shared across
+  every run is a persistence layer for any single poisoned input.
+  Expire aggressively.
+- **Diff memory on read.** If the agent's memory layer is a file,
+  CODEOWNERS it and surface diffs like any other prompt-layer change
+  — a silent append from a previous run is exactly the path an
+  attacker wants.
+- **No tool authority driven by memory alone.** A decision that
+  unlocks writes, registry pushes, or merges must be grounded in
+  the current run's typed input, not in "the agent's notes said it
+  was safe."
+- **Cross-link with supply chain (#5).** Shared skills and
+  team-level memory stores are now prompt supply chain — the same
+  review gate that protects `CLAUDE.md` must cover them.
+
 ## Design checklist
 
 Before any new workflow ships, a design review answers:
@@ -232,4 +277,153 @@ onto the boundaries above — worth reading as case studies when
 teaching the threat model to reviewers:
 
 - **Prompt injection in automated security-review actions.** A
-  high-severity finding (CVSS in the
+  high-severity finding (CVSS in the critical range) was
+  disclosed in late 2025 against a popular "AI reviews this PR"
+  GitHub Action pattern: a payload in a PR title, issue body, or
+  comment was read by the action as task context and steered the
+  agent into surfacing credentials the runner held. The family
+  was reproduced against multiple coding agents wired into
+  GitHub Actions — the shared root cause is that each tool read
+  untrusted PR / issue text and processed it as instructions,
+  not as data.
+  *Boundary that failed:* input → model (Class #1).
+  *Lesson for reviewers:* any agent that reads repo metadata
+  (issue bodies, PR titles, comments) is reading attacker-
+  influenced input. Tag it as data, scope the runner's
+  credentials to the minimum, and never let a "review"
+  workflow carry write scopes it doesn't demonstrably need.
+- **Tool description poisoning across co-resident MCP servers.**
+  A research disclosure in 2025 showed that a hostile MCP server
+  could hide instructions in its *tool descriptions* — not its
+  responses — that a co-resident, otherwise-legitimate server's
+  agent would read while deciding which tool to call, causing
+  it to exfiltrate data from the legitimate server. Several
+  MCP-component CVEs followed the same shape through 2025–2026.
+  *Boundary that failed:* input → model via the tool surface
+  itself (Class #2, tool poisoning).
+  *Lesson for reviewers:* tool descriptions are prompt-layer
+  input. Pin and diff them at the gateway; don't treat "it's
+  metadata, not content" as a safety argument.
+- **The "lethal trifecta" data-theft pattern.** Named by Simon
+  Willison in mid-2025 and reproduced publicly against many
+  major assistants: any agent with *private data access*,
+  *exposure to untrusted content*, and *an outbound
+  communication channel* is structurally vulnerable to
+  exfiltration via prompt injection. The specific CVEs under
+  this umbrella (against Microsoft 365 Copilot, ChatGPT-class
+  products, and several others) will date fast; the pattern
+  will not.
+  *Boundaries that failed:* input → model (Class #1) abused
+  to drive model → tool (Class #2) for exfiltration (Class #4).
+  *Lesson for reviewers:* at design review, explicitly
+  enumerate any agent that has all three trifecta properties.
+  If the answer is "yes to all three," one of them has to be
+  removed — outbound allowlist, secret redaction at the
+  connector, or isolation of the untrusted input channel. The
+  emerging architectural answer is **dual-LLM control-flow
+  isolation**: a privileged LLM that holds the tools and
+  never sees attacker-influenced text, and a quarantined LLM
+  that reads the untrusted content but cannot call tools. See
+  [Emerging Patterns → dual-LLM isolation]({{< relref "/fundamentals/emerging-patterns#dual-llm-control-flow-isolation" >}}).
+- **Instruction-file supply chain.** Multiple 2025–2026
+  disclosures against agent project files (`CLAUDE.md`-class
+  instructions, `.cursor/rules`, Copilot / Codex house-rules
+  files) showed that a PR modifying a prompt or skill could
+  ship an RCE or token-exfiltration path without touching any
+  "application" code. The attacker's change was a few lines in
+  an instruction file that a later agent run obeyed.
+  *Boundary that failed:* input → model, by way of the prompt
+  supply chain (Class #5).
+  *Lesson for reviewers:* CODEOWNERS every prompt, skill, rule,
+  and instruction file. A diff to `CLAUDE.md` is a diff to
+  authz, not a diff to docs.
+- **MCP configuration as a code-execution surface.** A 2026
+  disclosure against the official MCP SDKs showed that a
+  poisoned `mcp.json` (or equivalent client config) could
+  invoke an attacker-chosen executable on agent startup —
+  including in failure paths where the server never came up,
+  so a launcher's "is the server healthy?" check did not
+  protect anything. The protocol's maintainers declared
+  sanitization a client-side responsibility, which means it
+  is *your* problem regardless of which SDK you use. This is
+  an instance of the prompt-supply-chain class (#5), but the
+  attacker's payload is a config field, not a prose
+  instruction — a different code path reaches it, so it slips
+  past prompt-aware controls.
+  *Boundary that failed:* prompt-layer / config supply chain
+  reaching tool execution directly (Class #5 → Class #3).
+  *Lesson for reviewers:* every MCP client-config file
+  (`mcp.json`, `.cursor/mcp.json`, equivalent fields in
+  Copilot / Codex / Devin configs, and the gateway's own
+  catalog) is an executable manifest. Treat it like CI
+  configuration: pinned by hash where possible, an allowlist
+  of permitted launcher executables enforced outside the
+  agent, CODEOWNERS on the file, and a separate review gate
+  for any change. "It's just config" is the same mistake as
+  "it's just metadata" — both are prompt-layer input that
+  reaches a tool boundary.
+- **Self-propagating package worms in developer environments.**
+  A 2025–2026 wave of npm, PyPI, and Docker Hub compromises
+  (Shai-Hulud, the Axios campaign, multiple worms that
+  self-replicate by re-publishing an infected author's other
+  packages) share a shape that's directly relevant here: the
+  malware runs at `install`-time inside whatever environment
+  pulled the package — which, for an agentic remediation
+  program, is the agent's sandbox during a "bump the vulnerable
+  dep" PR. The agent opens a PR that is, by design, an install
+  event; if the fix version itself is attacker-controlled, the
+  sandbox is compromised before any test runs. Reachability
+  filtering doesn't catch this — the payload doesn't care
+  whether your service reaches the package at runtime; it only
+  needs the agent's sandbox to execute install hooks.
+  *Boundary that failed:* model → tool (#2) extended into
+  tool → downstream system (#3), through a supply-chain
+  compromise of the "safe upgrade target."
+  *Lesson for reviewers:* a dependency-bump agent is a
+  dependency *installer*, and every installer is a potential
+  malware target. Pin resolved versions by hash in lockfiles,
+  never by range; require a sandbox with no outbound network
+  except to the registry; disable install scripts by default
+  in the agent's environment (`npm install --ignore-scripts`,
+  `pip install --no-build-isolation --no-deps` for triage
+  runs, equivalents in Bun / pnpm / uv / Poetry); gate
+  newly-published versions (< 7 days old, < N downloads, new
+  maintainer) behind a human step. Bring the supply-chain
+  reputation controls in
+  [Emerging Patterns → supply-chain reputation scoring]({{< relref "/fundamentals/emerging-patterns#supply-chain-reputation-scoring" >}})
+  up the eligibility ladder — an agent that auto-bumps to a
+  four-hour-old release is a worm's ideal delivery vector.
+- **Adversarial red-team studies against defended agents.**
+  Published academic work through 2025–2026 synthesising the
+  prompt-injection literature against agentic coding
+  assistants has repeatedly reported attack success rates
+  above 85% against state-of-the-art single-layer defenses
+  when adaptive strategies are used. The number is worth
+  naming out loud: a single input-filter, a single output
+  scanner, or a single "ignore previous instructions" detector
+  is not a control. The controls on this page are layered on
+  purpose.
+  *Boundary that failed:* usually input → model (#1), but the
+  deeper lesson is structural — single controls fail under
+  adaptive pressure.
+  *Lesson for reviewers:* design reviews should not accept "we
+  have prompt-injection detection" as an answer. Ask which
+  *other* controls catch it if the detector misses: tool
+  allowlist, path allowlist, outbound URL allowlist, reviewer
+  gate, write-approval hook. If the chain has a single point
+  of failure, assume the attacker has already found it.
+
+Every incident should land in exactly one primary bucket; an
+incident that spans two is a signal that the control at the
+earlier boundary wasn't doing its job. Use that framing in
+postmortems — "which boundary should have caught this, and
+why didn't it?" is the question that produces durable fixes,
+rather than a new detection for the specific payload.
+
+## See also
+
+- [Agentic Security Remediation]({{< relref "/security-remediation" >}}) — the workflows this threat model applies to
+- [Reviewer Playbook]({{< relref "/security-remediation/reviewer-playbook" >}}) — the human-in-the-loop defense
+- [MCP Server Access]({{< relref "/mcp-servers" >}}) — connector scoping and MCP-gateway patterns
+- [Emerging Patterns → progressive tool discovery]({{< relref "/fundamentals/emerging-patterns#progressive-tool-discovery-and-tool-search" >}}) — why tool search expands the surface this page protects
+- [Program Metrics & KPIs]({{< relref "/security-remediation/metrics" >}}) — the kill-signal metrics that make these controls measurable

@@ -184,6 +184,38 @@ flowchart TB
   equivalents from GitLab, Bitbucket, and the SCA vendors as
   the pattern spreads.
 
+### Task budgets as a bounded-run primitive
+
+- **What it is.** A model-side parameter that caps the total
+  token spend (thinking + tool calls + tool results + output)
+  for a single agent turn or loop. The agent is told up front
+  what budget it has, prunes its plan accordingly, and the
+  platform hard-stops the run when the ceiling is hit. Shipping
+  in first-party APIs (Anthropic's task-budget parameter on
+  Opus 4.7; OpenAI's equivalent reasoning budget controls) and
+  being standardised into orchestration frameworks as a
+  per-run config value.
+- **Why it matters.** Cost and safety are the same problem at
+  the tail: a runaway loop is both a bill-shock event and a
+  blast-radius event. A budget is a deterministic ceiling
+  that doesn't depend on the agent noticing it's misbehaving,
+  which is exactly the kind of control you want when the
+  agent *is* the thing behaving badly. For remediation
+  specifically, budgets give you an easy dispatcher-level
+  eligibility gate: "if the workflow class's p95 budget is 40k
+  tokens, any run exceeding 2× is an anomaly to investigate."
+- **Watch for.** Budgets don't replace stop-and-ask semantics —
+  a run that hits its budget should *stop and triage*, not
+  silently emit a partial answer. Wire the budget-exhausted
+  exit path into the same triage-note surface the agent uses
+  when it hits other guardrails, and alert on a rising rate of
+  budget-exhaustion (the first signal of a prompt-regression
+  or a new model under-performing).
+- **Representative shapes.** Anthropic's task-budget parameter
+  (Opus 4.7), OpenAI reasoning-budget controls, LangGraph /
+  CrewAI per-node budget enforcement, orchestrator-level
+  wallclock + token caps.
+
 ### Chain-of-verification
 
 - **What it is.** The agent generates an answer, then generates
@@ -387,6 +419,62 @@ flowchart LR
 
 ---
 
+## Identity and access for agents
+
+### Agent identity as a first-class principal
+
+- **What it is.** Treating every agent run as its own
+  identifiable actor — not a shared "bot" account, not the
+  human who dispatched it, not a workload identity bound to
+  the sandbox container. The run presents credentials tied to
+  **(agent class, workflow, invoking principal, task ID)**,
+  and those credentials expire at the end of the run. Audit
+  logs downstream (MCP gateway, git host, ticket system)
+  record the *agent's* identity on every action, with a link
+  back to the human or queue that authorized the work.
+- **Why it matters.** A workload identity can prove which
+  container ran; it cannot prove what the reasoning inside
+  that container was permitted to do. For security-scoped
+  remediation — where an agent may hold read access to
+  findings, write access to a repo, and call credentials
+  scoped to bumps — the difference between "who ran the
+  process" and "what the process was authorized to do" is
+  the difference between a recoverable incident and a
+  confused-deputy blast radius. Regulated programs are
+  beginning to require this distinction explicitly (EU AI Act
+  audit-trail obligations, emerging US state AI accountability
+  acts), and several compliance frameworks now treat a shared
+  agent credential the same way they'd treat a shared root
+  SSH key.
+- **Watch for.** Four common failure modes worth naming in a
+  design review:
+    - *Human-credential borrowing.* An agent that runs under
+      the dispatching user's token inherits that user's full
+      blast radius. Short-lived, scoped agent identities cost
+      more to set up once but remove the entire class.
+    - *Shared "bot" accounts.* If every agent run authenticates
+      as `ci-bot` or `copilot-bot`, every tool call is
+      indistinguishable in the log — and so is every
+      compromise.
+    - *No human-owner link.* Every agent identity should name
+      a mandatory human owner, the way every SSH key names a
+      person. "Who do you page when this identity misbehaves?"
+      must have an answer before the identity is issued.
+    - *No revocation path.* A kill switch for the *fleet* is
+      not a kill switch for *this run* — revocation needs to
+      be per-identity and near-instant.
+- **Representative shapes.** Per-run workload-identity issuance
+  (SPIFFE/SPIRE patterns adapted for agents), OIDC-bound
+  short-lived tokens minted by the MCP gateway per call,
+  vendor-specific agent-identity products (Aembit, Strata,
+  Entrust and others), and the emerging class of "agent IAM"
+  controls Gartner is tracking alongside traditional IAM. The
+  2026 design posture: agent identities are their own
+  principal class — not humans, not workloads — with mandatory
+  ownership, just-in-time scoping, and instant revocation.
+
+---
+
 ## Sandbox and execution runtimes
 
 ### Ephemeral, per-run sandboxes
@@ -451,6 +539,60 @@ flowchart LR
 ---
 
 ## Guardrail and safety frameworks
+
+### Dual-LLM control-flow isolation
+
+```mermaid
+flowchart LR
+    UNTRUSTED["Untrusted input<br/><i>finding text, advisory,<br/>PR body, MCP response</i>"] --> Q
+    Q[["Quarantined LLM<br/><i>no tools<br/>extracts structured fields only</i>"]]
+    Q -->|typed handoff| P[["Privileged LLM<br/><i>holds the tools<br/>never sees raw untrusted text</i>"]]
+    P --> TOOLS[(Tools / MCP / writes)]
+
+    classDef untrusted fill:#3a1a1a,stroke:#ff6b6b,color:#f5f7fb,stroke-dasharray: 4 3;
+    classDef quar fill:#2a1040,stroke:#ff4ecb,color:#f5f7fb;
+    classDef priv fill:#0a2540,stroke:#00e5ff,color:#f5f7fb;
+    classDef io fill:#1a2a1a,stroke:#86efac,color:#f5f7fb;
+    class UNTRUSTED untrusted
+    class Q quar
+    class P priv
+    class TOOLS io
+```
+
+- **What it is.** A control-flow architecture that splits the
+  agent in two. A **privileged LLM** plans and calls tools but
+  never reads attacker-influenced text. A **quarantined LLM**
+  reads the untrusted content (advisory bodies, PR comments,
+  MCP responses, web pages) and emits a *typed, schema-
+  validated* handoff — never free text — back to the
+  privileged side. The original Google DeepMind framing
+  (CaMeL, 2025) is now the reference shape for prompt-injection-
+  resistant agents; 2026 enterprise extensions add capability
+  metadata, output auditing, and a small intermediate
+  language for the handoff.
+- **Why it matters.** It's a *positive* architectural answer
+  to the lethal trifecta — instead of "remove one of {private
+  data, untrusted content, outbound channel}," it removes the
+  *path* between them. For remediation specifically, the shape
+  is natural: one agent reads the vulnerability report and
+  produces a typed `{cve, package, fixed_version, file_paths}`
+  record; a second agent writes the patch from that record and
+  never sees the report's prose. The reviewer gate stays in
+  place; the attacker's surface area collapses.
+- **Watch for.** The handoff schema is the new attack surface.
+  An overly-permissive field (a free-text `notes` slot, an
+  unbounded `paths` array) re-creates the channel you just
+  removed. Treat the schema like a security policy: minimum
+  fields, bounded sizes, enumerated where possible. Also: the
+  privileged side still trusts tool *responses* — pair with
+  the size caps and trust tiers in
+  [Threat Model → poisoned MCP responses]({{< relref "/fundamentals/threat-model#2-poisoned-mcp-responses-and-tool-descriptions" >}}).
+- **Representative shapes.** Google DeepMind's CaMeL pattern;
+  Simon Willison's "two LLMs" framing; supervisor / worker
+  splits where the supervisor reads only typed worker output;
+  programmatic-tool-calling sandboxes used as the privileged
+  executor with a separate "summariser" LLM acting as the
+  quarantined reader.
 
 ### NeMo Guardrails (NVIDIA)
 

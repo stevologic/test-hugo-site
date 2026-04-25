@@ -185,6 +185,20 @@ The seven-question checklist is their running reference.
   next PR from the same workflow will make the same mistake.
 - **Serial approver** — one person approves every agent PR. Means
   one person is the single point of failure. Distribute.
+- **Auto-approve drift.** Published telemetry from multiple agent
+  vendors now shows reviewer auto-approve rates climbing with
+  session count — roughly doubling between a reviewer's first
+  ~50 agent PRs and their ~500th. Autonomy is being quietly
+  *co-constructed* between agent and reviewer; no one decided to
+  hand over more trust, it just accumulated. Defense: pre-declare
+  which approval types must remain manual no matter how routine
+  the workflow feels — secrets writes, dependency manifest edits,
+  CI / pipeline changes, MCP client config, and any prompt /
+  skill / rule file. Track per-reviewer auto-approve rate over
+  time (see
+  [Program Metrics → auto-approve drift]({{< relref "/security-remediation/metrics#auto-approve-drift" >}}));
+  a steadily-rising line is the signal that the habit is
+  degrading even though no single PR looks wrong.
 
 ## See also
 

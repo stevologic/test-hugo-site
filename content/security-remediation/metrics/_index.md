@@ -66,6 +66,32 @@ Reviewing agent PRs is work. Measure it.
   queue means the agent is producing faster than humans can review,
   which is a throttling decision, not a success.
 
+#### Auto-approve drift
+
+A sub-metric inside reviewer burden, and the one most worth
+graphing on its own. Published vendor telemetry through 2025–2026
+showed reviewer auto-approve rates on agent PRs roughly *doubling*
+between a reviewer's first ~50 PRs and their ~500th — trust gets
+co-constructed silently as the workflow feels routine. This is the
+quantitative form of the rubber-stamp anti-pattern in the
+[Reviewer Playbook]({{< relref "/security-remediation/reviewer-playbook#anti-patterns-to-call-out" >}}).
+
+- **Per-reviewer auto-approve rate over time.** Bucket reviewers
+  by cumulative agent-PR count (0–50, 51–200, 201–500, 500+) and
+  track the merge-as-is rate in each bucket. A healthy program
+  shows the rate converging, not climbing.
+- **Time-to-first-comment.** As a drift proxy: the median time
+  between PR open and the reviewer's first substantive comment,
+  per reviewer, per workflow. When it compresses below roughly
+  sixty seconds for non-trivial diffs, the review is almost
+  certainly being skimmed.
+- **Manual-review-required tag coverage.** A small fixed list of
+  change classes (secret writes, dep-manifest edits, CI config,
+  MCP client config, prompt / skill / rule files) is tagged by
+  the orchestrator. Auto-approve rate on tagged PRs should be
+  zero by policy. Anything non-zero here is an incident, not a
+  trend.
+
 ### 4. False-positive and false-negative rates
 
 - **False positives** — agent opened a PR that the reviewer
@@ -172,6 +198,13 @@ turn it back on until the root cause is understood:
   classifier is misrouting).
 - Any incident where the agent caused a production outage, no
   matter how small.
+- Auto-approve rate on any manual-review-required change class
+  is greater than zero, even once. That's not a trend; it's a
+  control failure.
+- Per-reviewer auto-approve rate climbing > 10 percentage points
+  quarter over quarter with no corresponding drop in regression
+  rate — trust is accumulating faster than the agent is earning
+  it.
 
 ## What not to measure (or: anti-metrics)
 

@@ -582,10 +582,21 @@ the same.
   [Threat Model: agents as attack surface]({{< relref "/fundamentals/threat-model" >}}) —
   prompt injection, poisoned MCP, tool abuse, and the mitigations
   every program should have in place.
+- **See what's changing in the agentic-remediation space** on
+  [Emerging Patterns & Tools]({{< relref "/fundamentals/emerging-patterns" >}}) —
+  reachability-aware triage, supervisor/worker orchestration,
+  proof-carrying patches, the new MCP protocol primitives
+  (progressive discovery, programmatic tool calling, elicitation,
+  long-running tasks), and other patterns worth tracking before
+  betting on them in production.
 
 ## See also
 
 - [Docs]({{< relref "/docs" >}}) — what this site is, who it's for,
   how to navigate it
+- [Quick Start]({{< relref "/quickstart" >}}) — the five-minute
+  path from zero to a first agentic remediation PR
+- [Threat Model]({{< relref "/fundamentals/threat-model" >}}) — agents as attack surface
+- [Emerging Patterns]({{< relref "/fundamentals/emerging-patterns" >}}) — what's maturing beyond the baseline
 - [Contribute]({{< relref "/contribute" >}}) — add a recipe, a
   prompt, or a new term to this glossary
