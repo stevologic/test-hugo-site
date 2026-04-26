@@ -1,0 +1,245 @@
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>security-recipes.ai – Prototype-Pollution</title><link>https://security-recipes.ai/tags/prototype-pollution/</link><description>Recent content in Prototype-Pollution on security-recipes.ai</description><generator>Hugo -- gohugo.io</generator><language>en-us</language><lastBuildDate>Sat, 25 Apr 2026 00:00:00 +0000</lastBuildDate><atom:link href="https://security-recipes.ai/tags/prototype-pollution/index.xml" rel="self" type="application/rss+xml"/><item><title>Prototype pollution — `merge`, `assign`, and friends</title><link>https://security-recipes.ai/prompt-library/general/classic-vulnerable-defaults/prototype-pollution-merge/</link><pubDate>Sat, 25 Apr 2026 00:00:00 +0000</pubDate><guid>https://security-recipes.ai/prompt-library/general/classic-vulnerable-defaults/prototype-pollution-merge/</guid><description>
+&lt;p>JavaScript objects inherit from &lt;code>Object.prototype&lt;/code>. A function
+that recursively merges a user-controlled JSON payload into an
+internal object can — if it doesn&amp;rsquo;t filter &lt;code>__proto__&lt;/code>,
+&lt;code>constructor&lt;/code>, or &lt;code>prototype&lt;/code> keys — &lt;em>modify&lt;/em> the prototype,
+which then leaks into every other object in the runtime. The
+attack vector is decades old; the unsafe shape is still the
+default in many homemade &lt;code>merge&lt;/code> and &lt;code>extend&lt;/code> utilities.&lt;/p>
+&lt;h2>Pattern&lt;span class="hx:absolute hx:-mt-20" id="pattern">&lt;/span>
+&lt;a href="#pattern" class="subheading-anchor" aria-label="Permalink for this section">&lt;/a>&lt;/h2>&lt;p>The vulnerable shape:&lt;/p>
+&lt;div class="hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code">
+&lt;div>&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-javascript" data-lang="javascript">&lt;span class="line">&lt;span class="cl">&lt;span class="kd">function&lt;/span> &lt;span class="nx">merge&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="nx">target&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="nx">source&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="p">{&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">for&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="kr">const&lt;/span> &lt;span class="nx">key&lt;/span> &lt;span class="k">in&lt;/span> &lt;span class="nx">source&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="p">{&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">if&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="k">typeof&lt;/span> &lt;span class="nx">source&lt;/span>&lt;span class="p">[&lt;/span>&lt;span class="nx">key&lt;/span>&lt;span class="p">]&lt;/span> &lt;span class="o">===&lt;/span> &lt;span class="s2">&amp;#34;object&amp;#34;&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="p">{&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="nx">target&lt;/span>&lt;span class="p">[&lt;/span>&lt;span class="nx">key&lt;/span>&lt;span class="p">]&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="nx">target&lt;/span>&lt;span class="p">[&lt;/span>&lt;span class="nx">key&lt;/span>&lt;span class="p">]&lt;/span> &lt;span class="o">||&lt;/span> &lt;span class="p">{};&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="nx">merge&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="nx">target&lt;/span>&lt;span class="p">[&lt;/span>&lt;span class="nx">key&lt;/span>&lt;span class="p">],&lt;/span> &lt;span class="nx">source&lt;/span>&lt;span class="p">[&lt;/span>&lt;span class="nx">key&lt;/span>&lt;span class="p">]);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="p">}&lt;/span> &lt;span class="k">else&lt;/span> &lt;span class="p">{&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="nx">target&lt;/span>&lt;span class="p">[&lt;/span>&lt;span class="nx">key&lt;/span>&lt;span class="p">]&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="nx">source&lt;/span>&lt;span class="p">[&lt;/span>&lt;span class="nx">key&lt;/span>&lt;span class="p">];&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="p">}&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="p">}&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">return&lt;/span> &lt;span class="nx">target&lt;/span>&lt;span class="p">;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="p">}&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="nx">merge&lt;/span>&lt;span class="p">({},&lt;/span> &lt;span class="nx">JSON&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="nx">parse&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="nx">userInput&lt;/span>&lt;span class="p">));&lt;/span>&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;/div>&lt;div class="hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0">
+&lt;button
+class="hextra-code-copy-btn hx:group/copybtn hx:cursor-pointer hx:transition-all hx:active:opacity-50 hx:bg-primary-700/5 hx:border hx:border-black/5 hx:text-gray-600 hx:hover:text-gray-900 hx:rounded-md hx:p-1.5 hx:dark:bg-primary-300/10 hx:dark:border-white/10 hx:dark:text-gray-400 hx:dark:hover:text-gray-50"
+title="Copy code"
+aria-label="Copy code"
+data-copied-label="Copied!"
+>
+&lt;div class="hextra-copy-icon hx:group-[.copied]/copybtn:hidden hx:pointer-events-none hx:h-4 hx:w-4">&lt;/div>
+&lt;div class="hextra-success-icon hx:hidden hx:group-[.copied]/copybtn:block hx:pointer-events-none hx:h-4 hx:w-4">&lt;/div>
+&lt;/button>
+&lt;/div>
+&lt;/div>
+&lt;p>A &lt;code>userInput&lt;/code> of &lt;code>{&amp;quot;__proto__&amp;quot;: {&amp;quot;isAdmin&amp;quot;: true}}&lt;/code> makes
+&lt;em>every&lt;/em> object in the runtime suddenly have &lt;code>isAdmin: true&lt;/code>.&lt;/p>
+&lt;p>Equivalent shapes appear in:&lt;/p>
+&lt;ul>
+&lt;li>Hand-rolled &lt;code>merge&lt;/code> / &lt;code>extend&lt;/code> / &lt;code>assign&lt;/code> / &lt;code>set&lt;/code> /
+&lt;code>setProperty&lt;/code> utilities.&lt;/li>
+&lt;li>Some old versions of &lt;code>lodash.merge&lt;/code>, &lt;code>lodash.set&lt;/code>,
+&lt;code>lodash.defaultsDeep&lt;/code> (patched, but pinned-old versions
+still appear in repos).&lt;/li>
+&lt;li>Express middleware that maps query strings or request bodies
+directly into options objects.&lt;/li>
+&lt;li>Form-handling libraries that build nested objects from
+&lt;code>nested[a][b]&lt;/code> form keys without filtering.&lt;/li>
+&lt;li>React state-update reducers that spread user-controlled
+payloads.&lt;/li>
+&lt;/ul>
+&lt;h2>Why it matters&lt;span class="hx:absolute hx:-mt-20" id="why-it-matters">&lt;/span>
+&lt;a href="#why-it-matters" class="subheading-anchor" aria-label="Permalink for this section">&lt;/a>&lt;/h2>&lt;p>A polluted prototype changes the behaviour of code far away
+from the call site. The classic exploit is making
+authorization checks return true; subtler ones change
+default-handling in libraries, set unexpected event handlers,
+or break framework invariants. SAST scanners catch only the
+most obvious shapes.&lt;/p>
+&lt;h2>Mitigation — key filter at the boundary&lt;span class="hx:absolute hx:-mt-20" id="mitigation--key-filter-at-the-boundary">&lt;/span>
+&lt;a href="#mitigation--key-filter-at-the-boundary" class="subheading-anchor" aria-label="Permalink for this section">&lt;/a>&lt;/h2>&lt;p>Add a global filter that strips &lt;code>__proto__&lt;/code>, &lt;code>constructor&lt;/code>,
+and &lt;code>prototype&lt;/code> keys from every parsed user payload before it
+reaches application code:&lt;/p>
+&lt;div class="hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code">
+&lt;div>&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-javascript" data-lang="javascript">&lt;span class="line">&lt;span class="cl">&lt;span class="kd">function&lt;/span> &lt;span class="nx">stripDangerousKeys&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="nx">value&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="p">{&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">if&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="nb">Array&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="nx">isArray&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="nx">value&lt;/span>&lt;span class="p">))&lt;/span> &lt;span class="k">return&lt;/span> &lt;span class="nx">value&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="nx">map&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="nx">stripDangerousKeys&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">if&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="nx">value&lt;/span> &lt;span class="o">&amp;amp;&amp;amp;&lt;/span> &lt;span class="k">typeof&lt;/span> &lt;span class="nx">value&lt;/span> &lt;span class="o">===&lt;/span> &lt;span class="s2">&amp;#34;object&amp;#34;&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="p">{&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="kr">const&lt;/span> &lt;span class="nx">out&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="nb">Object&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="nx">create&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="kc">null&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">for&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="kr">const&lt;/span> &lt;span class="nx">key&lt;/span> &lt;span class="k">of&lt;/span> &lt;span class="nb">Object&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="nx">keys&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="nx">value&lt;/span>&lt;span class="p">))&lt;/span> &lt;span class="p">{&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">if&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="nx">key&lt;/span> &lt;span class="o">===&lt;/span> &lt;span class="s2">&amp;#34;__proto__&amp;#34;&lt;/span> &lt;span class="o">||&lt;/span> &lt;span class="nx">key&lt;/span> &lt;span class="o">===&lt;/span> &lt;span class="s2">&amp;#34;constructor&amp;#34;&lt;/span> &lt;span class="o">||&lt;/span> &lt;span class="nx">key&lt;/span> &lt;span class="o">===&lt;/span> &lt;span class="s2">&amp;#34;prototype&amp;#34;&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="p">{&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">continue&lt;/span>&lt;span class="p">;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="p">}&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="nx">out&lt;/span>&lt;span class="p">[&lt;/span>&lt;span class="nx">key&lt;/span>&lt;span class="p">]&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="nx">stripDangerousKeys&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="nx">value&lt;/span>&lt;span class="p">[&lt;/span>&lt;span class="nx">key&lt;/span>&lt;span class="p">]);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="p">}&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">return&lt;/span> &lt;span class="nx">out&lt;/span>&lt;span class="p">;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="p">}&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">return&lt;/span> &lt;span class="nx">value&lt;/span>&lt;span class="p">;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="p">}&lt;/span>&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;/div>&lt;div class="hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0">
+&lt;button
+class="hextra-code-copy-btn hx:group/copybtn hx:cursor-pointer hx:transition-all hx:active:opacity-50 hx:bg-primary-700/5 hx:border hx:border-black/5 hx:text-gray-600 hx:hover:text-gray-900 hx:rounded-md hx:p-1.5 hx:dark:bg-primary-300/10 hx:dark:border-white/10 hx:dark:text-gray-400 hx:dark:hover:text-gray-50"
+title="Copy code"
+aria-label="Copy code"
+data-copied-label="Copied!"
+>
+&lt;div class="hextra-copy-icon hx:group-[.copied]/copybtn:hidden hx:pointer-events-none hx:h-4 hx:w-4">&lt;/div>
+&lt;div class="hextra-success-icon hx:hidden hx:group-[.copied]/copybtn:block hx:pointer-events-none hx:h-4 hx:w-4">&lt;/div>
+&lt;/button>
+&lt;/div>
+&lt;/div>
+&lt;p>Wrap the application&amp;rsquo;s body-parser, query-parser, and
+JSON.parse boundary so every external object passes through
+the filter once.&lt;/p>
+&lt;p>For Node, &lt;code>Object.freeze(Object.prototype)&lt;/code> at startup is a
+nuclear-grade defence — but it breaks libraries that
+legitimately mutate the prototype. Test before deploying.&lt;/p>
+&lt;h2>Uplift — replace home-rolled merge with vetted utilities&lt;span class="hx:absolute hx:-mt-20" id="uplift--replace-home-rolled-merge-with-vetted-utilities">&lt;/span>
+&lt;a href="#uplift--replace-home-rolled-merge-with-vetted-utilities" class="subheading-anchor" aria-label="Permalink for this section">&lt;/a>&lt;/h2>&lt;ul>
+&lt;li>&lt;strong>Vetted merge libraries:&lt;/strong> &lt;code>deepmerge&lt;/code> (current versions
+filter), &lt;code>merge-deep&lt;/code> (current versions), &lt;code>lodash.merge&lt;/code>
+(post-4.17.20). Pin to the patched version and pin
+forward.&lt;/li>
+&lt;li>&lt;strong>Null-prototype objects:&lt;/strong> &lt;code>Object.create(null)&lt;/code> for any
+object built from user input — it has no prototype to
+pollute.&lt;/li>
+&lt;li>&lt;strong>&lt;code>structuredClone&lt;/code>:&lt;/strong> for cases where the merge can be
+replaced with &amp;ldquo;clone the user input and overlay it onto a
+fresh defaults object,&amp;rdquo; &lt;code>structuredClone&lt;/code> (Node 17+,
+modern browsers) is a safe primitive.&lt;/li>
+&lt;li>&lt;strong>&lt;code>Object.assign&lt;/code> is fine&lt;/strong> — it doesn&amp;rsquo;t recurse, so
+prototype-pollution payloads don&amp;rsquo;t propagate. Many
+hand-rolled &lt;code>merge&lt;/code> functions are used where &lt;code>Object.assign&lt;/code>
+would be enough.&lt;/li>
+&lt;/ul>
+&lt;h2>Inputs&lt;span class="hx:absolute hx:-mt-20" id="inputs">&lt;/span>
+&lt;a href="#inputs" class="subheading-anchor" aria-label="Permalink for this section">&lt;/a>&lt;/h2>&lt;ul>
+&lt;li>&lt;strong>Call sites&lt;/strong> — every hand-rolled merge / extend / set
+function and every entry-point that maps user input into
+nested objects.&lt;/li>
+&lt;li>&lt;strong>Library versions&lt;/strong> — for any merge utility, the pinned
+version.&lt;/li>
+&lt;/ul>
+&lt;h2>The prompt&lt;span class="hx:absolute hx:-mt-20" id="the-prompt">&lt;/span>
+&lt;a href="#the-prompt" class="subheading-anchor" aria-label="Permalink for this section">&lt;/a>&lt;/h2>&lt;div class="hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code">
+&lt;div>&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-markdown" data-lang="markdown">&lt;span class="line">&lt;span class="cl">You are remediating prototype-pollution surface in this
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">JavaScript / TypeScript repo. Output a PR or a TRIAGE.md.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">## Step 0 — Inventory
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">1.&lt;/span> Grep for hand-rolled merge functions: &lt;span class="sb">`function merge(`&lt;/span>,
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="sb">`function extend(`&lt;/span>, &lt;span class="sb">`function deepMerge(`&lt;/span>, recursive
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="sb">`for-in`&lt;/span> loops that assign into nested objects.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">2.&lt;/span> Identify every entry-point that parses user input into
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> nested objects: &lt;span class="sb">`body-parser`&lt;/span>, &lt;span class="sb">`qs.parse`&lt;/span> with
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="sb">`allowPrototypes`&lt;/span>, form-data parsers, GraphQL resolvers
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> that spread untyped variables.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">3.&lt;/span> Check pinned versions of &lt;span class="sb">`lodash`&lt;/span>, &lt;span class="sb">`deepmerge`&lt;/span>, &lt;span class="sb">`hoek`&lt;/span>,
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="sb">`merge-deep`&lt;/span>, &lt;span class="sb">`defaults-deep`&lt;/span>. Anything pinned old is a
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> suspect.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">## Step 1 — Pick the strategy
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">-&lt;/span> **Hand-rolled merge:** uplift to a vetted library, &lt;span class="ge">*and*&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> install the boundary filter for defence-in-depth.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">-&lt;/span> **Old-pinned vetted library:** bump to the patched version,
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> install the boundary filter.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">-&lt;/span> **Boundary parsers without filtering:** install the boundary
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> filter.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">## Step 2 — Install the boundary filter
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">1.&lt;/span> Add the &lt;span class="sb">`stripDangerousKeys`&lt;/span> utility (or import a
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> maintained equivalent) at a stable module path.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">2.&lt;/span> Wrap every parsed-from-user-input boundary:
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">-&lt;/span> Express &lt;span class="sb">`body-parser`&lt;/span>: replace
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="sb">`app.use(express.json())`&lt;/span> with a wrapper that filters
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> after parse.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">-&lt;/span> Form parsers: filter after parse.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">-&lt;/span> &lt;span class="sb">`JSON.parse(req.body)`&lt;/span>: wrap with the filter.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">3.&lt;/span> Use &lt;span class="sb">`Object.create(null)`&lt;/span> for any object built from user
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> input where the application logic doesn&amp;#39;t depend on
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="sb">`Object.prototype`&lt;/span> methods being inherited.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">## Step 3 — Replace hand-rolled merges
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">For each hand-rolled merge:
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">1.&lt;/span> Identify the closest vetted equivalent
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> (&lt;span class="sb">`Object.assign`&lt;/span>, &lt;span class="sb">`lodash.merge`&lt;/span>&lt;span class="ni">@latest&lt;/span>, &lt;span class="sb">`deepmerge`&lt;/span>,
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="sb">`structuredClone`&lt;/span>).
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">2.&lt;/span> Replace the hand-rolled function. Delete the old one if
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> no callers remain.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">3.&lt;/span> If the hand-rolled merge had application-specific
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> behaviour (e.g., array concatenation rules), encode that
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> behaviour in the vetted library&amp;#39;s options.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">## Step 4 — Tests
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">Add tests:
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">-&lt;/span> A &lt;span class="sb">`__proto__`&lt;/span> payload: the merge does not set
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="sb">`Object.prototype.&amp;lt;key&amp;gt;`&lt;/span>.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">-&lt;/span> A &lt;span class="sb">`constructor.prototype`&lt;/span> payload: same assertion.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">-&lt;/span> A normal nested payload: the merge produces the expected
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> object (behaviour preservation).
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">-&lt;/span> After the request returns, &lt;span class="sb">`({}).polluted`&lt;/span> is &lt;span class="sb">`undefined`&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> (no leakage to other objects in the runtime).
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">## Step 5 — Open the PR
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">-&lt;/span> Branch: &lt;span class="sb">`remediate/proto-pollution-&amp;lt;module-slug&amp;gt;`&lt;/span>.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">-&lt;/span> Title: &lt;span class="sb">`[Security][prototype-pollution] filter dangerous keys at &amp;lt;module&amp;gt;`&lt;/span>.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">-&lt;/span> Body: call-site inventory, library bumps, boundary filter
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> installation, tests added.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">-&lt;/span> Label: &lt;span class="sb">`sec-auto-remediation`&lt;/span>.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">## Stop conditions
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">-&lt;/span> The codebase legitimately uses &lt;span class="sb">`__proto__`&lt;/span> as a property
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> name (rare; if so, document and triage).
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">-&lt;/span> A merge utility&amp;#39;s behaviour-preservation test fails on a
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> normal payload after the swap. Triage.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">-&lt;/span> &lt;span class="sb">`Object.freeze(Object.prototype)`&lt;/span> would break
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> load-bearing libraries; defer that mitigation.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">## Scope
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">-&lt;/span> Do not bundle unrelated refactors.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">-&lt;/span> Do not silently broaden the boundary filter to permit
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> dangerous keys.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">-&lt;/span> Do not delete hand-rolled merges that are still called by
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> code outside this PR&amp;#39;s scope.&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;/div>&lt;div class="hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0">
+&lt;button
+class="hextra-code-copy-btn hx:group/copybtn hx:cursor-pointer hx:transition-all hx:active:opacity-50 hx:bg-primary-700/5 hx:border hx:border-black/5 hx:text-gray-600 hx:hover:text-gray-900 hx:rounded-md hx:p-1.5 hx:dark:bg-primary-300/10 hx:dark:border-white/10 hx:dark:text-gray-400 hx:dark:hover:text-gray-50"
+title="Copy code"
+aria-label="Copy code"
+data-copied-label="Copied!"
+>
+&lt;div class="hextra-copy-icon hx:group-[.copied]/copybtn:hidden hx:pointer-events-none hx:h-4 hx:w-4">&lt;/div>
+&lt;div class="hextra-success-icon hx:hidden hx:group-[.copied]/copybtn:block hx:pointer-events-none hx:h-4 hx:w-4">&lt;/div>
+&lt;/button>
+&lt;/div>
+&lt;/div>
+&lt;h2>Watch for&lt;span class="hx:absolute hx:-mt-20" id="watch-for">&lt;/span>
+&lt;a href="#watch-for" class="subheading-anchor" aria-label="Permalink for this section">&lt;/a>&lt;/h2>&lt;ul>
+&lt;li>&lt;strong>&lt;code>Object.assign&lt;/code> mistaken for the unsafe pattern.&lt;/strong> It
+isn&amp;rsquo;t — &lt;code>Object.assign&lt;/code> does shallow assignment and ignores
+&lt;code>__proto__&lt;/code> as a key (it&amp;rsquo;s a getter, not a writable
+property on plain objects). The audit should keep it.&lt;/li>
+&lt;li>&lt;strong>&lt;code>qs.parse&lt;/code> with &lt;code>allowPrototypes: true&lt;/code>.&lt;/strong> Some legacy
+Express apps set this. Remove.&lt;/li>
+&lt;li>&lt;strong>&lt;code>Object.create(null)&lt;/code> breaking libraries that expect
+&lt;code>.hasOwnProperty&lt;/code>.&lt;/strong> Use &lt;code>Object.prototype.hasOwnProperty.call(obj, k)&lt;/code>
+instead.&lt;/li>
+&lt;li>&lt;strong>GraphQL variables.&lt;/strong> Mapping untyped GraphQL variables
+into nested option objects is a common entry-point.&lt;/li>
+&lt;li>&lt;strong>TypeScript doesn&amp;rsquo;t save you.&lt;/strong> A type assertion on a
+parsed JSON payload is not a runtime check. The boundary
+filter is.&lt;/li>
+&lt;/ul>
+&lt;h2>Related&lt;span class="hx:absolute hx:-mt-20" id="related">&lt;/span>
+&lt;a href="#related" class="subheading-anchor" aria-label="Permalink for this section">&lt;/a>&lt;/h2>&lt;ul>
+&lt;li>&lt;a href="https://security-recipes.ai/security-remediation/classic-vulnerable-defaults/">Classic Vulnerable Defaults&lt;/a>
+— workflow context.&lt;/li>
+&lt;li>&lt;a href="https://security-recipes.ai/prompt-library/general/classic-vulnerable-defaults/eval-and-function-constructor/">eval and Function constructor&lt;/a>
+— companion JavaScript pattern.&lt;/li>
+&lt;/ul></description></item></channel></rss>

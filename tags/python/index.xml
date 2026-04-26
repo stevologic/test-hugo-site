@@ -1,0 +1,631 @@
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>security-recipes.ai – Python</title><link>https://security-recipes.ai/tags/python/</link><description>Recent content in Python on security-recipes.ai</description><generator>Hugo -- gohugo.io</generator><language>en-us</language><lastBuildDate>Sun, 26 Apr 2026 00:00:00 +0000</lastBuildDate><atom:link href="https://security-recipes.ai/tags/python/index.xml" rel="self" type="application/rss+xml"/><item><title>Python pickle / dill on untrusted input</title><link>https://security-recipes.ai/prompt-library/general/classic-vulnerable-defaults/python-pickle/</link><pubDate>Sat, 25 Apr 2026 00:00:00 +0000</pubDate><guid>https://security-recipes.ai/prompt-library/general/classic-vulnerable-defaults/python-pickle/</guid><description>
+&lt;p>&lt;code>pickle.load&lt;/code>, &lt;code>pickle.loads&lt;/code>, &lt;code>cPickle.load&lt;/code>, &lt;code>dill.load&lt;/code>, and
+their friends are &lt;strong>arbitrary-code-execution primitives&lt;/strong> when
+fed untrusted input. The Python docs say so plainly. The CVE
+trail is decades long. The unsafe behaviour is &lt;em>the design&lt;/em> —
+pickle is meant to reconstruct any Python object, including
+ones whose &lt;code>__reduce__&lt;/code> runs code.&lt;/p>
+&lt;h2>Pattern&lt;span class="hx:absolute hx:-mt-20" id="pattern">&lt;/span>
+&lt;a href="#pattern" class="subheading-anchor" aria-label="Permalink for this section">&lt;/a>&lt;/h2>&lt;p>Any of:&lt;/p>
+&lt;ul>
+&lt;li>&lt;code>pickle.load(f)&lt;/code>, &lt;code>pickle.loads(s)&lt;/code>,
+&lt;code>cPickle.load(f)&lt;/code>, &lt;code>cPickle.loads(s)&lt;/code>.&lt;/li>
+&lt;li>&lt;code>dill.load(f)&lt;/code>, &lt;code>dill.loads(s)&lt;/code> (same problem, larger
+surface).&lt;/li>
+&lt;li>&lt;code>joblib.load(path)&lt;/code> when the path is user-controlled.&lt;/li>
+&lt;li>&lt;code>numpy.load(allow_pickle=True)&lt;/code> on user files (silent default
+before 1.16.3 was unsafe; current default is safe but the
+flag is often re-enabled in legacy code).&lt;/li>
+&lt;li>&lt;code>torch.load(path)&lt;/code> (Python 2.6+ pickling underneath; safer
+options now exist as of PyTorch 2.5+).&lt;/li>
+&lt;/ul>
+&lt;h2>Why it matters&lt;span class="hx:absolute hx:-mt-20" id="why-it-matters">&lt;/span>
+&lt;a href="#why-it-matters" class="subheading-anchor" aria-label="Permalink for this section">&lt;/a>&lt;/h2>&lt;p>A pickled payload can carry a &lt;code>__reduce__&lt;/code> that returns
+&lt;code>(os.system, (&amp;quot;rm -rf /&amp;quot;,))&lt;/code> — &lt;code>pickle.load&lt;/code> happily executes
+it. There is no patch coming. Reading attacker-controlled
+pickles is RCE.&lt;/p>
+&lt;h2>Mitigation — restricted unpickler&lt;span class="hx:absolute hx:-mt-20" id="mitigation--restricted-unpickler">&lt;/span>
+&lt;a href="#mitigation--restricted-unpickler" class="subheading-anchor" aria-label="Permalink for this section">&lt;/a>&lt;/h2>&lt;p>When the call is on a backwards-compat read path (a legacy
+checkpoint format, an old persistence file), wrap the
+unpickler:&lt;/p>
+&lt;div class="hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code">
+&lt;div>&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="kn">import&lt;/span> &lt;span class="nn">pickle&lt;/span>&lt;span class="o">,&lt;/span> &lt;span class="nn">io&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">class&lt;/span> &lt;span class="nc">SafeUnpickler&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">pickle&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">Unpickler&lt;/span>&lt;span class="p">):&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">ALLOWED&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="p">{&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="p">(&lt;/span>&lt;span class="s2">&amp;#34;builtins&amp;#34;&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s2">&amp;#34;dict&amp;#34;&lt;/span>&lt;span class="p">),&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="p">(&lt;/span>&lt;span class="s2">&amp;#34;builtins&amp;#34;&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s2">&amp;#34;list&amp;#34;&lt;/span>&lt;span class="p">),&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="p">(&lt;/span>&lt;span class="s2">&amp;#34;builtins&amp;#34;&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s2">&amp;#34;set&amp;#34;&lt;/span>&lt;span class="p">),&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="p">(&lt;/span>&lt;span class="s2">&amp;#34;builtins&amp;#34;&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s2">&amp;#34;tuple&amp;#34;&lt;/span>&lt;span class="p">),&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="c1"># Add only the application-specific classes&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="c1"># that legitimately round-trip through pickle.&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="p">}&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">def&lt;/span> &lt;span class="nf">find_class&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="bp">self&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">module&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">name&lt;/span>&lt;span class="p">):&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">if&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="n">module&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">name&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="bp">self&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">ALLOWED&lt;/span>&lt;span class="p">:&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">return&lt;/span> &lt;span class="nb">super&lt;/span>&lt;span class="p">()&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">find_class&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">module&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">name&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">raise&lt;/span> &lt;span class="n">pickle&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">UnpicklingError&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="sa">f&lt;/span>&lt;span class="s2">&amp;#34;forbidden: &lt;/span>&lt;span class="si">{&lt;/span>&lt;span class="n">module&lt;/span>&lt;span class="si">}&lt;/span>&lt;span class="s2">.&lt;/span>&lt;span class="si">{&lt;/span>&lt;span class="n">name&lt;/span>&lt;span class="si">}&lt;/span>&lt;span class="s2">&amp;#34;&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">def&lt;/span> &lt;span class="nf">safe_loads&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">data&lt;/span>&lt;span class="p">:&lt;/span> &lt;span class="nb">bytes&lt;/span>&lt;span class="p">):&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">return&lt;/span> &lt;span class="n">SafeUnpickler&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">io&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">BytesIO&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">data&lt;/span>&lt;span class="p">))&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">load&lt;/span>&lt;span class="p">()&lt;/span>&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;/div>&lt;div class="hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0">
+&lt;button
+class="hextra-code-copy-btn hx:group/copybtn hx:cursor-pointer hx:transition-all hx:active:opacity-50 hx:bg-primary-700/5 hx:border hx:border-black/5 hx:text-gray-600 hx:hover:text-gray-900 hx:rounded-md hx:p-1.5 hx:dark:bg-primary-300/10 hx:dark:border-white/10 hx:dark:text-gray-400 hx:dark:hover:text-gray-50"
+title="Copy code"
+aria-label="Copy code"
+data-copied-label="Copied!"
+>
+&lt;div class="hextra-copy-icon hx:group-[.copied]/copybtn:hidden hx:pointer-events-none hx:h-4 hx:w-4">&lt;/div>
+&lt;div class="hextra-success-icon hx:hidden hx:group-[.copied]/copybtn:block hx:pointer-events-none hx:h-4 hx:w-4">&lt;/div>
+&lt;/button>
+&lt;/div>
+&lt;/div>
+&lt;p>Every rejection logs at WARN. The allowlist is the policy; it is
+narrow on purpose.&lt;/p>
+&lt;h2>Uplift — replace pickle entirely&lt;span class="hx:absolute hx:-mt-20" id="uplift--replace-pickle-entirely">&lt;/span>
+&lt;a href="#uplift--replace-pickle-entirely" class="subheading-anchor" aria-label="Permalink for this section">&lt;/a>&lt;/h2>&lt;p>Default replacement choices:&lt;/p>
+&lt;ul>
+&lt;li>&lt;strong>JSON&lt;/strong> (&lt;code>json.dumps&lt;/code> / &lt;code>json.loads&lt;/code>) — when the data is
+already a tree of primitives.&lt;/li>
+&lt;li>&lt;strong>msgpack&lt;/strong> — when binary payload size matters.&lt;/li>
+&lt;li>&lt;strong>protobuf&lt;/strong> / &lt;strong>pydantic JSON&lt;/strong> — when the data has a schema
+worth declaring.&lt;/li>
+&lt;li>For ML-shaped state: &lt;strong>safetensors&lt;/strong> for weights, JSON for
+metadata.&lt;/li>
+&lt;/ul>
+&lt;p>Behaviour preservation: round-trip a representative payload
+through the old &lt;code>pickle.dumps&lt;/code> and the new serializer; assert
+the in-memory shape matches.&lt;/p>
+&lt;h2>Inputs&lt;span class="hx:absolute hx:-mt-20" id="inputs">&lt;/span>
+&lt;a href="#inputs" class="subheading-anchor" aria-label="Permalink for this section">&lt;/a>&lt;/h2>&lt;ul>
+&lt;li>&lt;strong>Call site&lt;/strong> — file + line range.&lt;/li>
+&lt;li>&lt;strong>Data path&lt;/strong> — where the input comes from (file, network,
+user-uploaded, intra-process).&lt;/li>
+&lt;li>&lt;strong>Replacement strategy&lt;/strong> — uplift / mitigate / both.&lt;/li>
+&lt;/ul>
+&lt;h2>The prompt&lt;span class="hx:absolute hx:-mt-20" id="the-prompt">&lt;/span>
+&lt;a href="#the-prompt" class="subheading-anchor" aria-label="Permalink for this section">&lt;/a>&lt;/h2>&lt;div class="hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code">
+&lt;div>&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-markdown" data-lang="markdown">&lt;span class="line">&lt;span class="cl">You are remediating one Python pickle call site. Output a PR
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">or a TRIAGE.md.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">## Step 0 — Read the call site and trace input
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">1.&lt;/span> Read the function containing the pickle call. Identify the
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> input source (file handle, bytes, network payload).
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">2.&lt;/span> If the input is provably trusted-only (e.g., a file written
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> in the same process, never read across a trust boundary),
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> stop and write a triage note documenting the trust
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> boundary — do not auto-replace.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">## Step 1 — Pick the strategy
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">-&lt;/span> If the call is on a backwards-compat read path with active
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> callers reading legacy data, do &lt;span class="gs">**mitigate**&lt;/span>.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">-&lt;/span> Otherwise do &lt;span class="gs">**uplift**&lt;/span>.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">-&lt;/span> For checkpoint loaders that take user-supplied paths, do
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="gs">**both**&lt;/span> — mitigate the legacy path, uplift the write path.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">## Step 2 — Mitigate (when applicable)
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">1.&lt;/span> Add a &lt;span class="sb">`SafeUnpickler`&lt;/span> subclass with an explicit class
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> allowlist scoped to the classes that legitimately round-trip
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> here. Log rejections at WARN.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">2.&lt;/span> Replace the &lt;span class="sb">`pickle.load(f)`&lt;/span> call with the safe wrapper.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">3.&lt;/span> Add a unit test that loads a known-good payload (passes)
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> and a payload referencing &lt;span class="sb">`os.system`&lt;/span> (raises
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="sb">`UnpicklingError`&lt;/span>).
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">## Step 3 — Uplift (when applicable)
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">1.&lt;/span> Choose the replacement format from this list, in order:
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> JSON if the payload is primitives, msgpack if binary size
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> matters, protobuf/pydantic if schema is worth declaring,
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> safetensors+JSON for ML weights.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">2.&lt;/span> Add a writer that emits the new format, and a reader that
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> parses it.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">3.&lt;/span> If old data exists, add a one-time migration that reads the
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> pickle (via the SafeUnpickler from Step 2) and writes the
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> new format. The migration is its own commit.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">4.&lt;/span> Add a behaviour-preservation test that asserts the in-memory
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> shape after uplift matches what the old pickle would have
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> produced.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">## Step 4 — Open the PR
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">-&lt;/span> Branch: &lt;span class="sb">`remediate/pickle-&amp;lt;short-slug&amp;gt;`&lt;/span>.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">-&lt;/span> Title: &lt;span class="sb">`[Security][pickle] replace untrusted-input pickle in &amp;lt;module&amp;gt;`&lt;/span>.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">-&lt;/span> Body must include: input-source analysis, strategy chosen,
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> test plan, legacy data migration plan if any, and a
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> follow-up checklist for adjacent pickle call sites that this
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> PR did not touch.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">-&lt;/span> Label: &lt;span class="sb">`sec-auto-remediation`&lt;/span>.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">## Stop conditions
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">-&lt;/span> Input source cannot be classified as untrusted vs. trusted.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">-&lt;/span> Replacement requires a coordinated migration across repos.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">-&lt;/span> Test coverage on the call path is too thin to detect
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> regressions.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">## Scope
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">-&lt;/span> Do not touch other pickle call sites in the repo. One per
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> PR.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">-&lt;/span> Do not silently broaden the SafeUnpickler allowlist beyond
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> the classes the local code actually uses.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">-&lt;/span> Do not remove the legacy read-path without a documented
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> data migration.&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;/div>&lt;div class="hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0">
+&lt;button
+class="hextra-code-copy-btn hx:group/copybtn hx:cursor-pointer hx:transition-all hx:active:opacity-50 hx:bg-primary-700/5 hx:border hx:border-black/5 hx:text-gray-600 hx:hover:text-gray-900 hx:rounded-md hx:p-1.5 hx:dark:bg-primary-300/10 hx:dark:border-white/10 hx:dark:text-gray-400 hx:dark:hover:text-gray-50"
+title="Copy code"
+aria-label="Copy code"
+data-copied-label="Copied!"
+>
+&lt;div class="hextra-copy-icon hx:group-[.copied]/copybtn:hidden hx:pointer-events-none hx:h-4 hx:w-4">&lt;/div>
+&lt;div class="hextra-success-icon hx:hidden hx:group-[.copied]/copybtn:block hx:pointer-events-none hx:h-4 hx:w-4">&lt;/div>
+&lt;/button>
+&lt;/div>
+&lt;/div>
+&lt;h2>Watch for&lt;span class="hx:absolute hx:-mt-20" id="watch-for">&lt;/span>
+&lt;a href="#watch-for" class="subheading-anchor" aria-label="Permalink for this section">&lt;/a>&lt;/h2>&lt;ul>
+&lt;li>&lt;strong>&lt;code>__reduce__&lt;/code> in tests.&lt;/strong> Some test suites legitimately
+pickle and unpickle custom classes. Don&amp;rsquo;t break those — add
+the classes to the allowlist explicitly.&lt;/li>
+&lt;li>&lt;strong>&lt;code>numpy.load(allow_pickle=True)&lt;/code> left enabled.&lt;/strong> Often a
+copy-paste from a stack-overflow answer. The default is safe
+now; flip it back.&lt;/li>
+&lt;li>&lt;strong>&lt;code>torch.load&lt;/code> on a user-supplied path.&lt;/strong> The mitigation
+shape depends on the PyTorch version; check the loader&amp;rsquo;s
+&lt;code>weights_only&lt;/code> parameter (PyTorch 2.5+ defaults it true).&lt;/li>
+&lt;li>&lt;strong>Cross-version pickles.&lt;/strong> A pickle written by Python 3.11
+may not round-trip cleanly on 3.9. The behaviour-preservation
+test catches this.&lt;/li>
+&lt;/ul>
+&lt;h2>Related&lt;span class="hx:absolute hx:-mt-20" id="related">&lt;/span>
+&lt;a href="#related" class="subheading-anchor" aria-label="Permalink for this section">&lt;/a>&lt;/h2>&lt;ul>
+&lt;li>&lt;a href="https://security-recipes.ai/security-remediation/classic-vulnerable-defaults/">Classic Vulnerable Defaults&lt;/a>
+— workflow context.&lt;/li>
+&lt;li>&lt;a href="https://security-recipes.ai/prompt-library/general/classic-vulnerable-defaults/pyyaml-load/">PyYAML &lt;code>yaml.load&lt;/code>&lt;/a>
+— sibling pattern with a different fix.&lt;/li>
+&lt;li>&lt;a href="https://security-recipes.ai/prompt-library/general/classic-vulnerable-defaults/java-deserialization/">Java ObjectInputStream&lt;/a>
+— same pattern in Java.&lt;/li>
+&lt;/ul></description></item><item><title>PyYAML `yaml.load` without a safe Loader</title><link>https://security-recipes.ai/prompt-library/general/classic-vulnerable-defaults/pyyaml-load/</link><pubDate>Sat, 25 Apr 2026 00:00:00 +0000</pubDate><guid>https://security-recipes.ai/prompt-library/general/classic-vulnerable-defaults/pyyaml-load/</guid><description>
+&lt;p>&lt;code>yaml.load(s)&lt;/code> — without an explicit &lt;code>Loader=&lt;/code> — was unsafe by
+default for over a decade. The default loader resolves
+&lt;code>!!python/object&lt;/code> tags, which is the YAML equivalent of pickle:
+arbitrary code execution on untrusted input. PyYAML 5.1 added a
+warning, 6.0 made the warning louder; the call shape is still
+out there in repos by the thousands.&lt;/p>
+&lt;h2>Pattern&lt;span class="hx:absolute hx:-mt-20" id="pattern">&lt;/span>
+&lt;a href="#pattern" class="subheading-anchor" aria-label="Permalink for this section">&lt;/a>&lt;/h2>&lt;ul>
+&lt;li>&lt;code>yaml.load(s)&lt;/code> — no &lt;code>Loader=&lt;/code> argument.&lt;/li>
+&lt;li>&lt;code>yaml.load(s, Loader=yaml.Loader)&lt;/code> — explicit unsafe loader.&lt;/li>
+&lt;li>&lt;code>yaml.load(s, Loader=yaml.UnsafeLoader)&lt;/code> — same, named.&lt;/li>
+&lt;li>&lt;code>yaml.full_load(s)&lt;/code> — looser than &lt;code>safe_load&lt;/code>; resolves
+arbitrary types, just not arbitrary Python.&lt;/li>
+&lt;/ul>
+&lt;p>The safe shapes:&lt;/p>
+&lt;ul>
+&lt;li>&lt;code>yaml.safe_load(s)&lt;/code> — refuses every Python tag. Almost
+always the right answer.&lt;/li>
+&lt;li>&lt;code>yaml.load(s, Loader=yaml.SafeLoader)&lt;/code> — same thing, more
+verbose.&lt;/li>
+&lt;/ul>
+&lt;h2>Why it matters&lt;span class="hx:absolute hx:-mt-20" id="why-it-matters">&lt;/span>
+&lt;a href="#why-it-matters" class="subheading-anchor" aria-label="Permalink for this section">&lt;/a>&lt;/h2>&lt;div class="hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code">
+&lt;div>&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-yaml" data-lang="yaml">&lt;span class="line">&lt;span class="cl">&lt;span class="cp">!!python/object/apply:os.system&lt;/span>&lt;span class="w"> &lt;/span>&lt;span class="p">[&lt;/span>&lt;span class="s2">&amp;#34;rm -rf /&amp;#34;&lt;/span>&lt;span class="p">]&lt;/span>&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;/div>&lt;div class="hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0">
+&lt;button
+class="hextra-code-copy-btn hx:group/copybtn hx:cursor-pointer hx:transition-all hx:active:opacity-50 hx:bg-primary-700/5 hx:border hx:border-black/5 hx:text-gray-600 hx:hover:text-gray-900 hx:rounded-md hx:p-1.5 hx:dark:bg-primary-300/10 hx:dark:border-white/10 hx:dark:text-gray-400 hx:dark:hover:text-gray-50"
+title="Copy code"
+aria-label="Copy code"
+data-copied-label="Copied!"
+>
+&lt;div class="hextra-copy-icon hx:group-[.copied]/copybtn:hidden hx:pointer-events-none hx:h-4 hx:w-4">&lt;/div>
+&lt;div class="hextra-success-icon hx:hidden hx:group-[.copied]/copybtn:block hx:pointer-events-none hx:h-4 hx:w-4">&lt;/div>
+&lt;/button>
+&lt;/div>
+&lt;/div>
+&lt;p>…is a payload &lt;code>yaml.load&lt;/code> will happily execute. There is no
+patch coming; &lt;code>safe_load&lt;/code> is the patch.&lt;/p>
+&lt;h2>Mitigation — monkey-patch at import&lt;span class="hx:absolute hx:-mt-20" id="mitigation--monkey-patch-at-import">&lt;/span>
+&lt;a href="#mitigation--monkey-patch-at-import" class="subheading-anchor" aria-label="Permalink for this section">&lt;/a>&lt;/h2>&lt;p>When the repo has dozens of call sites, replacing every one in
+a single PR is risky. The mitigation is a one-line shim that
+makes the unsafe loader behave like the safe one:&lt;/p>
+&lt;div class="hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code">
+&lt;div>&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="c1"># importable as e.g. `import myapp.yaml_safety_shim`&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="kn">import&lt;/span> &lt;span class="nn">yaml&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="kn">import&lt;/span> &lt;span class="nn">warnings&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">_orig_load&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">yaml&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">load&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">def&lt;/span> &lt;span class="nf">_safe_load&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">stream&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">Loader&lt;/span>&lt;span class="o">=&lt;/span>&lt;span class="kc">None&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="o">**&lt;/span>&lt;span class="n">kwargs&lt;/span>&lt;span class="p">):&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">if&lt;/span> &lt;span class="n">Loader&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="kc">None&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">yaml&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">Loader&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">yaml&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">UnsafeLoader&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">yaml&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">FullLoader&lt;/span>&lt;span class="p">):&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">warnings&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">warn&lt;/span>&lt;span class="p">(&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="s2">&amp;#34;yaml.load shimmed to SafeLoader&amp;#34;&lt;/span>&lt;span class="p">,&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">stacklevel&lt;/span>&lt;span class="o">=&lt;/span>&lt;span class="mi">2&lt;/span>&lt;span class="p">,&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">return&lt;/span> &lt;span class="n">_orig_load&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">stream&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">Loader&lt;/span>&lt;span class="o">=&lt;/span>&lt;span class="n">yaml&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">SafeLoader&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="o">**&lt;/span>&lt;span class="n">kwargs&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">return&lt;/span> &lt;span class="n">_orig_load&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">stream&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">Loader&lt;/span>&lt;span class="o">=&lt;/span>&lt;span class="n">Loader&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="o">**&lt;/span>&lt;span class="n">kwargs&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">yaml&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">load&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">_safe_load&lt;/span>&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;/div>&lt;div class="hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0">
+&lt;button
+class="hextra-code-copy-btn hx:group/copybtn hx:cursor-pointer hx:transition-all hx:active:opacity-50 hx:bg-primary-700/5 hx:border hx:border-black/5 hx:text-gray-600 hx:hover:text-gray-900 hx:rounded-md hx:p-1.5 hx:dark:bg-primary-300/10 hx:dark:border-white/10 hx:dark:text-gray-400 hx:dark:hover:text-gray-50"
+title="Copy code"
+aria-label="Copy code"
+data-copied-label="Copied!"
+>
+&lt;div class="hextra-copy-icon hx:group-[.copied]/copybtn:hidden hx:pointer-events-none hx:h-4 hx:w-4">&lt;/div>
+&lt;div class="hextra-success-icon hx:hidden hx:group-[.copied]/copybtn:block hx:pointer-events-none hx:h-4 hx:w-4">&lt;/div>
+&lt;/button>
+&lt;/div>
+&lt;/div>
+&lt;p>Import this shim once at the application&amp;rsquo;s entry point. Every
+unsafe call now warns at runtime and decodes safely.&lt;/p>
+&lt;h2>Uplift — replace each call&lt;span class="hx:absolute hx:-mt-20" id="uplift--replace-each-call">&lt;/span>
+&lt;a href="#uplift--replace-each-call" class="subheading-anchor" aria-label="Permalink for this section">&lt;/a>&lt;/h2>&lt;p>The clean fix: replace every &lt;code>yaml.load(s)&lt;/code> with
+&lt;code>yaml.safe_load(s)&lt;/code>. Mechanical change. A repo-wide search and
+a sed-equivalent is enough for most cases — but the agent
+inspects each call to confirm the data flow and adds a
+behaviour-preservation test.&lt;/p>
+&lt;h2>Inputs&lt;span class="hx:absolute hx:-mt-20" id="inputs">&lt;/span>
+&lt;a href="#inputs" class="subheading-anchor" aria-label="Permalink for this section">&lt;/a>&lt;/h2>&lt;ul>
+&lt;li>&lt;strong>Call sites&lt;/strong> — list of files / lines where &lt;code>yaml.load&lt;/code>
+appears.&lt;/li>
+&lt;li>&lt;strong>Strategy&lt;/strong> — uplift each / install shim / both.&lt;/li>
+&lt;/ul>
+&lt;h2>The prompt&lt;span class="hx:absolute hx:-mt-20" id="the-prompt">&lt;/span>
+&lt;a href="#the-prompt" class="subheading-anchor" aria-label="Permalink for this section">&lt;/a>&lt;/h2>&lt;div class="hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code">
+&lt;div>&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-markdown" data-lang="markdown">&lt;span class="line">&lt;span class="cl">You are remediating PyYAML &lt;span class="sb">`yaml.load`&lt;/span> call sites that resolve
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">unsafe tags. Output a PR or a TRIAGE.md.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">## Step 0 — Inventory
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">1.&lt;/span> List every &lt;span class="sb">`yaml.load`&lt;/span>, &lt;span class="sb">`yaml.full_load`&lt;/span>,
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="sb">`yaml.load(..., Loader=yaml.Loader)`&lt;/span>,
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="sb">`yaml.load(..., Loader=yaml.UnsafeLoader)`&lt;/span>,
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="sb">`yaml.load(..., Loader=yaml.FullLoader)`&lt;/span> call in the repo.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">2.&lt;/span> For each call, record whether the input is untrusted (file
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> uploaded by a user, fetched from a URL, parsed from a
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> request body) or trusted-only (a config file written by
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> the same process).
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">## Step 1 — Pick the strategy
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">-&lt;/span> **≤5 call sites or all in application code:** uplift each
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> call site directly to &lt;span class="sb">`yaml.safe_load`&lt;/span>.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">-&lt;/span> **Many call sites or the codebase imports through helpers:**
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> install the import-time shim &lt;span class="ge">*and*&lt;/span> still uplift the call
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> sites that legitimately need a non-default loader.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">-&lt;/span> **Trusted-only call sites:** still uplift; the safe loader
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> costs nothing on trusted input.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">## Step 2 — Uplift
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">1.&lt;/span> Replace &lt;span class="sb">`yaml.load(s)`&lt;/span> with &lt;span class="sb">`yaml.safe_load(s)`&lt;/span>.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">2.&lt;/span> Replace &lt;span class="sb">`yaml.load(s, Loader=yaml.Loader)`&lt;/span> with
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="sb">`yaml.safe_load(s)`&lt;/span>.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">3.&lt;/span> If the call truly needs a non-Safe loader (e.g., the YAML
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> carries a custom tag this codebase legitimately registers),
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> keep the explicit loader and document why in a comment with
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> a &lt;span class="sb">`# noqa: yaml-load-policy`&lt;/span> marker.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">4.&lt;/span> Add a unit test: a payload containing
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="sb">`!!python/object/apply:os.system [&amp;#34;echo pwned&amp;#34;]`&lt;/span> must raise
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="sb">`yaml.constructor.ConstructorError`&lt;/span> after the change.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">## Step 3 — Install the shim (when chosen)
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">1.&lt;/span> Add the shim module at a stable import path
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> (&lt;span class="sb">`&amp;lt;package&amp;gt;/_yaml_safety_shim.py`&lt;/span>).
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">2.&lt;/span> Import the shim from the application&amp;#39;s entry point(s).
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">3.&lt;/span> Add a unit test that imports the shim, calls &lt;span class="sb">`yaml.load`&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> without a Loader, and confirms the SafeLoader was used.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">## Step 4 — Open the PR
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">-&lt;/span> Branch: &lt;span class="sb">`remediate/yaml-safe-load-&amp;lt;short-slug&amp;gt;`&lt;/span>.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">-&lt;/span> Title: &lt;span class="sb">`[Security][yaml] use safe_load on untrusted YAML`&lt;/span>.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">-&lt;/span> Body: per-call-site analysis, strategy chosen, test
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> additions, the &lt;span class="sb">`# noqa`&lt;/span> exceptions if any.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">-&lt;/span> Label: &lt;span class="sb">`sec-auto-remediation`&lt;/span>.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">## Stop conditions
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">-&lt;/span> The codebase relies on a custom YAML tag that requires
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="sb">`yaml.Loader`&lt;/span> and the agent can&amp;#39;t determine whether the
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> custom tag&amp;#39;s resolver is itself safe.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">-&lt;/span> Tests fail because of a legitimate behaviour change in
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> unrelated code.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">## Scope
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">-&lt;/span> Do not change YAML files themselves.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">-&lt;/span> Do not add new YAML tags.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">- Do not bundle in unrelated refactors.&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;/div>&lt;div class="hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0">
+&lt;button
+class="hextra-code-copy-btn hx:group/copybtn hx:cursor-pointer hx:transition-all hx:active:opacity-50 hx:bg-primary-700/5 hx:border hx:border-black/5 hx:text-gray-600 hx:hover:text-gray-900 hx:rounded-md hx:p-1.5 hx:dark:bg-primary-300/10 hx:dark:border-white/10 hx:dark:text-gray-400 hx:dark:hover:text-gray-50"
+title="Copy code"
+aria-label="Copy code"
+data-copied-label="Copied!"
+>
+&lt;div class="hextra-copy-icon hx:group-[.copied]/copybtn:hidden hx:pointer-events-none hx:h-4 hx:w-4">&lt;/div>
+&lt;div class="hextra-success-icon hx:hidden hx:group-[.copied]/copybtn:block hx:pointer-events-none hx:h-4 hx:w-4">&lt;/div>
+&lt;/button>
+&lt;/div>
+&lt;/div>
+&lt;h2>Watch for&lt;span class="hx:absolute hx:-mt-20" id="watch-for">&lt;/span>
+&lt;a href="#watch-for" class="subheading-anchor" aria-label="Permalink for this section">&lt;/a>&lt;/h2>&lt;ul>
+&lt;li>&lt;strong>&lt;code>yaml.load(s, Loader=Loader)&lt;/code> where &lt;code>Loader&lt;/code> is a custom
+subclass.&lt;/strong> Custom loaders may already be safe. Read the
+subclass before swapping.&lt;/li>
+&lt;li>&lt;strong>&lt;code>yaml.load_all&lt;/code> and &lt;code>yaml.full_load_all&lt;/code>.&lt;/strong> Same problem,
+same fix — &lt;code>yaml.safe_load_all&lt;/code>.&lt;/li>
+&lt;li>&lt;strong>The shim breaking custom-tag YAML&lt;/strong> in the repo&amp;rsquo;s own
+config files. The shim opts out only when an explicit
+Loader is passed; verify all legitimate custom-tag callers
+pass an explicit Loader.&lt;/li>
+&lt;/ul>
+&lt;h2>Related&lt;span class="hx:absolute hx:-mt-20" id="related">&lt;/span>
+&lt;a href="#related" class="subheading-anchor" aria-label="Permalink for this section">&lt;/a>&lt;/h2>&lt;ul>
+&lt;li>&lt;a href="https://security-recipes.ai/security-remediation/classic-vulnerable-defaults/">Classic Vulnerable Defaults&lt;/a>
+— workflow context.&lt;/li>
+&lt;li>&lt;a href="https://security-recipes.ai/prompt-library/general/classic-vulnerable-defaults/python-pickle/">Python pickle&lt;/a>
+— same risk class, different syntax.&lt;/li>
+&lt;/ul></description></item><item><title>CVE-2017-18342 — PyYAML default `load` resolves arbitrary tags</title><link>https://security-recipes.ai/prompt-library/cve/cve-2017-18342-pyyaml/</link><pubDate>Sat, 25 Apr 2026 00:00:00 +0000</pubDate><guid>https://security-recipes.ai/prompt-library/cve/cve-2017-18342-pyyaml/</guid><description>
+&lt;p>PyYAML&amp;rsquo;s &lt;code>yaml.load()&lt;/code> resolved &lt;code>!!python/object&lt;/code> and friends
+without an explicit safe loader, making any
+attacker-controlled YAML a code-execution primitive. The CVE
+is the formal advisory; the &lt;em>behaviour&lt;/em> predates the CVE by
+the better part of a decade. PyYAML 5.1 added a deprecation
+warning when &lt;code>Loader=&lt;/code> was omitted; PyYAML 6.0 made the
+omission a &lt;code>TypeError&lt;/code>. Most repos have call sites that
+predate either change.&lt;/p>
+&lt;h2>Affected versions&lt;span class="hx:absolute hx:-mt-20" id="affected-versions">&lt;/span>
+&lt;a href="#affected-versions" class="subheading-anchor" aria-label="Permalink for this section">&lt;/a>&lt;/h2>&lt;ul>
+&lt;li>&lt;strong>PyYAML&lt;/strong> ≤ 3.13 — vulnerable, no warning.&lt;/li>
+&lt;li>&lt;strong>PyYAML&lt;/strong> 4.x — never released widely.&lt;/li>
+&lt;li>&lt;strong>PyYAML&lt;/strong> 5.1+ — emits a &lt;code>YAMLLoadWarning&lt;/code> when
+&lt;code>Loader=&lt;/code> is omitted; still resolves unsafe tags by
+default.&lt;/li>
+&lt;li>&lt;strong>PyYAML&lt;/strong> 6.0+ — &lt;code>yaml.load()&lt;/code> raises &lt;code>TypeError&lt;/code>
+without an explicit &lt;code>Loader&lt;/code>. The behaviour was made safe
+by removal.&lt;/li>
+&lt;/ul>
+&lt;h2>Indicator-of-exposure&lt;span class="hx:absolute hx:-mt-20" id="indicator-of-exposure">&lt;/span>
+&lt;a href="#indicator-of-exposure" class="subheading-anchor" aria-label="Permalink for this section">&lt;/a>&lt;/h2>&lt;p>Any call site of &lt;code>yaml.load(...)&lt;/code> (without &lt;code>Loader=&lt;/code>),
+&lt;code>yaml.load(..., Loader=yaml.Loader)&lt;/code>,
+&lt;code>yaml.load(..., Loader=yaml.UnsafeLoader)&lt;/code>, or
+&lt;code>yaml.full_load(...)&lt;/code> on untrusted input.&lt;/p>
+&lt;p>Detection:&lt;/p>
+&lt;div class="hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code">
+&lt;div>&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-bash" data-lang="bash">&lt;span class="line">&lt;span class="cl">git grep -n &lt;span class="s2">&amp;#34;yaml\\.load\\b\\|yaml\\.full_load\\b\\|Loader=yaml\\.\\(Loader\\|UnsafeLoader\\|FullLoader\\)&amp;#34;&lt;/span>&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;/div>&lt;div class="hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0">
+&lt;button
+class="hextra-code-copy-btn hx:group/copybtn hx:cursor-pointer hx:transition-all hx:active:opacity-50 hx:bg-primary-700/5 hx:border hx:border-black/5 hx:text-gray-600 hx:hover:text-gray-900 hx:rounded-md hx:p-1.5 hx:dark:bg-primary-300/10 hx:dark:border-white/10 hx:dark:text-gray-400 hx:dark:hover:text-gray-50"
+title="Copy code"
+aria-label="Copy code"
+data-copied-label="Copied!"
+>
+&lt;div class="hextra-copy-icon hx:group-[.copied]/copybtn:hidden hx:pointer-events-none hx:h-4 hx:w-4">&lt;/div>
+&lt;div class="hextra-success-icon hx:hidden hx:group-[.copied]/copybtn:block hx:pointer-events-none hx:h-4 hx:w-4">&lt;/div>
+&lt;/button>
+&lt;/div>
+&lt;/div>
+&lt;p>Whether the call is &lt;em>exposed&lt;/em> depends on the data flow:
+attacker-controlled YAML (file upload, HTTP body, partner
+feed) is exposure; a trusted application config file is
+not — though the safe shape costs nothing on trusted input
+either.&lt;/p>
+&lt;h2>Remediation strategy&lt;span class="hx:absolute hx:-mt-20" id="remediation-strategy">&lt;/span>
+&lt;a href="#remediation-strategy" class="subheading-anchor" aria-label="Permalink for this section">&lt;/a>&lt;/h2>&lt;p>This CVE has a generic recipe that covers it directly:&lt;/p>
+&lt;ul>
+&lt;li>See &lt;a href="https://security-recipes.ai/prompt-library/general/classic-vulnerable-defaults/pyyaml-load/">Classic Vulnerable Defaults → PyYAML &lt;code>yaml.load&lt;/code>&lt;/a>
+for the durable fix pattern.&lt;/li>
+&lt;/ul>
+&lt;p>This per-CVE recipe overlays the broader generic recipe with
+two CVE-specific actions:&lt;/p>
+&lt;ol>
+&lt;li>&lt;strong>Pin&lt;/strong> PyYAML to ≥6.0 (or ≥5.1 with &lt;code>Loader=yaml.SafeLoader&lt;/code>
+on every call) to lock in the safe-default behaviour at the
+library level.&lt;/li>
+&lt;li>&lt;strong>Re-scan&lt;/strong> with the SCA tool to confirm CVE-2017-18342 is
+no longer reported against the post-fix lockfile.&lt;/li>
+&lt;/ol>
+&lt;h2>The prompt&lt;span class="hx:absolute hx:-mt-20" id="the-prompt">&lt;/span>
+&lt;a href="#the-prompt" class="subheading-anchor" aria-label="Permalink for this section">&lt;/a>&lt;/h2>&lt;div class="hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code">
+&lt;div>&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-markdown" data-lang="markdown">&lt;span class="line">&lt;span class="cl">You are remediating CVE-2017-18342 (PyYAML default-loader
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">RCE) in this repository. Output a PR or a TRIAGE.md.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">## Step 0 — Inventory
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">1.&lt;/span> List every &lt;span class="sb">`yaml.load`&lt;/span>, &lt;span class="sb">`yaml.full_load`&lt;/span>,
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="sb">`yaml.load(..., Loader=yaml.Loader)`&lt;/span>,
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="sb">`yaml.load(..., Loader=yaml.UnsafeLoader)`&lt;/span>,
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="sb">`yaml.load(..., Loader=yaml.FullLoader)`&lt;/span> call.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">2.&lt;/span> Read the lockfile and confirm the pinned PyYAML version.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">## Step 1 — Apply the generic fix pattern
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">Follow the recipe at
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">[/prompt-library/general/classic-vulnerable-defaults/pyyaml-load/]
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">end-to-end. Replace every unsafe call with &lt;span class="sb">`yaml.safe_load`&lt;/span>,
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">or install the import-time shim, or both.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">## Step 2 — Pin PyYAML
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">1.&lt;/span> Pin PyYAML to ≥6.0 in the lockfile / requirements file.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">2.&lt;/span> Run the project&amp;#39;s test suite to surface any breakage from
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> the 5.x → 6.x bump.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">3.&lt;/span> If the project depends on a transitive consumer of
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> PyYAML &lt;span class="p">&amp;lt;&lt;/span>&lt;span class="nt">6&lt;/span> &lt;span class="err">(&lt;/span>&lt;span class="sb">`pip-tools`&lt;/span> &lt;span class="na">resolves&lt;/span> &lt;span class="na">a&lt;/span> &lt;span class="na">downgrade&lt;/span>&lt;span class="err">),&lt;/span> &lt;span class="na">document&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="na">the&lt;/span> &lt;span class="na">constraint&lt;/span> &lt;span class="na">in&lt;/span> &lt;span class="na">the&lt;/span> &lt;span class="na">PR&lt;/span> &lt;span class="na">body&lt;/span>&lt;span class="err">.&lt;/span> &lt;span class="na">The&lt;/span> &lt;span class="na">agent&lt;/span> &lt;span class="na">does&lt;/span> &lt;span class="na">not&lt;/span> &lt;span class="na">silently&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="na">downgrade&lt;/span>&lt;span class="err">.&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">## Step 3 — Verify
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">1.&lt;/span> &lt;span class="na">Re-run&lt;/span> &lt;span class="na">the&lt;/span> &lt;span class="na">SCA&lt;/span> &lt;span class="na">scanner&lt;/span>&lt;span class="err">.&lt;/span> &lt;span class="na">CVE-2017-18342&lt;/span> &lt;span class="na">must&lt;/span> &lt;span class="na">show&lt;/span> &lt;span class="na">as&lt;/span> &lt;span class="na">fixed&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="na">or&lt;/span> &lt;span class="na">not&lt;/span> &lt;span class="na">present&lt;/span>&lt;span class="err">.&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">2.&lt;/span> &lt;span class="na">Add&lt;/span> &lt;span class="na">the&lt;/span> &lt;span class="na">standard&lt;/span> &lt;span class="na">PyYAML&lt;/span> &lt;span class="na">safe-load&lt;/span> &lt;span class="na">test&lt;/span> &lt;span class="na">from&lt;/span> &lt;span class="na">the&lt;/span> &lt;span class="na">generic&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="na">recipe&lt;/span> &lt;span class="err">(&lt;/span>&lt;span class="na">a&lt;/span> &lt;span class="na">payload&lt;/span> &lt;span class="na">with&lt;/span> &lt;span class="sb">`!!python/object/apply:os.system`&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="na">raises&lt;/span> &lt;span class="sb">`yaml.constructor.ConstructorError`&lt;/span>&lt;span class="err">).&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">## Step 4 — Open the PR
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">-&lt;/span> &lt;span class="na">Branch:&lt;/span> &lt;span class="sb">`remediate/cve-2017-18342-pyyaml`&lt;/span>&lt;span class="err">.&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">-&lt;/span> &lt;span class="na">Title:&lt;/span> &lt;span class="sb">`[Security][CVE-2017-18342] safe_load + pin PyYAML ≥6`&lt;/span>&lt;span class="err">.&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">-&lt;/span> &lt;span class="na">Body:&lt;/span> &lt;span class="na">per-call-site&lt;/span> &lt;span class="na">list&lt;/span>&lt;span class="err">,&lt;/span> &lt;span class="na">lockfile&lt;/span> &lt;span class="na">diff&lt;/span>&lt;span class="err">,&lt;/span> &lt;span class="na">SCA&lt;/span> &lt;span class="na">before&lt;/span>&lt;span class="err">/&lt;/span>&lt;span class="na">after&lt;/span>&lt;span class="err">,&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="na">test&lt;/span> &lt;span class="na">addition&lt;/span>&lt;span class="err">,&lt;/span> &lt;span class="na">any&lt;/span> &lt;span class="na">downstream&lt;/span> &lt;span class="na">pin&lt;/span> &lt;span class="na">notes&lt;/span>&lt;span class="err">.&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">-&lt;/span> &lt;span class="na">Label:&lt;/span> &lt;span class="sb">`sec-auto-remediation`&lt;/span>&lt;span class="err">.&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">## Stop conditions
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">-&lt;/span> &lt;span class="na">A&lt;/span> &lt;span class="na">transitive&lt;/span> &lt;span class="na">dependency&lt;/span> &lt;span class="na">requires&lt;/span> &lt;span class="na">PyYAML&lt;/span> &lt;span class="err">&amp;lt;&lt;/span>&lt;span class="na">6&lt;/span> &lt;span class="na">and&lt;/span> &lt;span class="na">cannot&lt;/span> &lt;span class="na">be&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="na">upgraded&lt;/span> &lt;span class="na">without&lt;/span> &lt;span class="na">a&lt;/span> &lt;span class="na">coordinated&lt;/span> &lt;span class="na">cross-repo&lt;/span> &lt;span class="na">change&lt;/span>&lt;span class="err">.&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">-&lt;/span> &lt;span class="na">A&lt;/span> &lt;span class="na">custom&lt;/span> &lt;span class="na">YAML&lt;/span> &lt;span class="na">tag&lt;/span> &lt;span class="na">the&lt;/span> &lt;span class="na">codebase&lt;/span> &lt;span class="na">legitimately&lt;/span> &lt;span class="na">uses&lt;/span> &lt;span class="na">requires&lt;/span> &lt;span class="na">a&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="na">non-Safe&lt;/span> &lt;span class="na">loader&lt;/span> &lt;span class="na">and&lt;/span> &lt;span class="na">the&lt;/span> &lt;span class="na">agent&lt;/span> &lt;span class="na">cannot&lt;/span> &lt;span class="na">determine&lt;/span> &lt;span class="na">whether&lt;/span> &lt;span class="na">the&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="na">tag&lt;/span>&lt;span class="err">&amp;#39;&lt;/span>&lt;span class="na">s&lt;/span> &lt;span class="na">resolver&lt;/span> &lt;span class="na">is&lt;/span> &lt;span class="na">itself&lt;/span> &lt;span class="na">safe&lt;/span>&lt;span class="err">.&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">## Scope
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">-&lt;/span> &lt;span class="na">Do&lt;/span> &lt;span class="na">not&lt;/span> &lt;span class="na">bundle&lt;/span> &lt;span class="na">unrelated&lt;/span> &lt;span class="na">CVEs&lt;/span>&lt;span class="err">.&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="na">-&lt;/span> &lt;span class="na">Do&lt;/span> &lt;span class="na">not&lt;/span> &lt;span class="na">silently&lt;/span> &lt;span class="na">re-pin&lt;/span> &lt;span class="na">downstream&lt;/span> &lt;span class="na">constraints&lt;/span>&lt;span class="err">.&lt;/span>&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;/div>&lt;div class="hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0">
+&lt;button
+class="hextra-code-copy-btn hx:group/copybtn hx:cursor-pointer hx:transition-all hx:active:opacity-50 hx:bg-primary-700/5 hx:border hx:border-black/5 hx:text-gray-600 hx:hover:text-gray-900 hx:rounded-md hx:p-1.5 hx:dark:bg-primary-300/10 hx:dark:border-white/10 hx:dark:text-gray-400 hx:dark:hover:text-gray-50"
+title="Copy code"
+aria-label="Copy code"
+data-copied-label="Copied!"
+>
+&lt;div class="hextra-copy-icon hx:group-[.copied]/copybtn:hidden hx:pointer-events-none hx:h-4 hx:w-4">&lt;/div>
+&lt;div class="hextra-success-icon hx:hidden hx:group-[.copied]/copybtn:block hx:pointer-events-none hx:h-4 hx:w-4">&lt;/div>
+&lt;/button>
+&lt;/div>
+&lt;/div>
+&lt;h2>Verification — what the reviewer looks for&lt;span class="hx:absolute hx:-mt-20" id="verification--what-the-reviewer-looks-for">&lt;/span>
+&lt;a href="#verification--what-the-reviewer-looks-for" class="subheading-anchor" aria-label="Permalink for this section">&lt;/a>&lt;/h2>&lt;ul>
+&lt;li>Every call site touched, or shim installed, with a clear
+rationale per call.&lt;/li>
+&lt;li>PyYAML pinned to ≥6.0.&lt;/li>
+&lt;li>SCA output shows CVE-2017-18342 cleared.&lt;/li>
+&lt;li>Behaviour-preservation test for any custom YAML tag the
+codebase uses.&lt;/li>
+&lt;/ul>
+&lt;h2>Watch for&lt;span class="hx:absolute hx:-mt-20" id="watch-for">&lt;/span>
+&lt;a href="#watch-for" class="subheading-anchor" aria-label="Permalink for this section">&lt;/a>&lt;/h2>&lt;ul>
+&lt;li>&lt;strong>&lt;code>yaml.load_all&lt;/code> and &lt;code>yaml.full_load_all&lt;/code>.&lt;/strong> Same problem,
+same fix.&lt;/li>
+&lt;li>&lt;strong>Indirect callers.&lt;/strong> Some libraries ship their own
+&lt;code>yaml.load(...)&lt;/code> wrapper — fix the library or pin it past
+the patched version.&lt;/li>
+&lt;li>&lt;strong>PyYAML 6.x parser changes.&lt;/strong> A handful of edge-case
+documents parse differently in 6.x (octal-number rules,
+some boolean shortcuts). Run the project&amp;rsquo;s tests.&lt;/li>
+&lt;/ul>
+&lt;h2>Related&lt;span class="hx:absolute hx:-mt-20" id="related">&lt;/span>
+&lt;a href="#related" class="subheading-anchor" aria-label="Permalink for this section">&lt;/a>&lt;/h2>&lt;ul>
+&lt;li>&lt;a href="https://security-recipes.ai/prompt-library/general/classic-vulnerable-defaults/pyyaml-load/">Classic Vulnerable Defaults → PyYAML &lt;code>yaml.load&lt;/code>&lt;/a>
+— the durable, tool-agnostic recipe this overlays.&lt;/li>
+&lt;li>&lt;a href="https://security-recipes.ai/security-remediation/vulnerable-dependencies/">Vulnerable Dependency Remediation&lt;/a>
+— the generic workflow.&lt;/li>
+&lt;li>&lt;a href="https://security-recipes.ai/prompt-library/general/classic-vulnerable-defaults/python-pickle/">Python pickle&lt;/a>
+— sibling Python deserialization risk.&lt;/li>
+&lt;/ul></description></item><item><title>CVE-2026-39987 — Marimo pre-auth RCE</title><link>https://security-recipes.ai/prompt-library/cve/cve-2026-39987-marimo-preauth-rce/</link><pubDate>Sun, 26 Apr 2026 00:00:00 +0000</pubDate><guid>https://security-recipes.ai/prompt-library/cve/cve-2026-39987-marimo-preauth-rce/</guid><description>
+&lt;p>&lt;code>marimo&lt;/code> before &lt;code>0.23.0&lt;/code> exposes a pre-auth remote code execution path on
+&lt;code>/terminal/ws&lt;/code>. The endpoint accepted WebSocket connections without validating
+authentication, allowing an unauthenticated attacker to obtain a PTY shell and
+run arbitrary commands.&lt;/p>
+&lt;p>NVD shows this CVE was added to CISA&amp;rsquo;s KEV catalog on &lt;strong>2026-04-23&lt;/strong>, which
+means active exploitation evidence exists and remediation should be expedited.&lt;/p>
+&lt;h2>Affected versions&lt;span class="hx:absolute hx:-mt-20" id="affected-versions">&lt;/span>
+&lt;a href="#affected-versions" class="subheading-anchor" aria-label="Permalink for this section">&lt;/a>&lt;/h2>&lt;ul>
+&lt;li>&lt;strong>Vulnerable:&lt;/strong> &lt;code>marimo&lt;/code> &lt;code>&amp;lt; 0.23.0&lt;/code>&lt;/li>
+&lt;li>&lt;strong>Fixed:&lt;/strong> &lt;code>marimo&lt;/code> &lt;code>&amp;gt;= 0.23.0&lt;/code>&lt;/li>
+&lt;/ul>
+&lt;h2>Indicator-of-exposure&lt;span class="hx:absolute hx:-mt-20" id="indicator-of-exposure">&lt;/span>
+&lt;a href="#indicator-of-exposure" class="subheading-anchor" aria-label="Permalink for this section">&lt;/a>&lt;/h2>&lt;ul>
+&lt;li>&lt;code>marimo&lt;/code> is installed at a vulnerable version.&lt;/li>
+&lt;li>The service is reachable from untrusted networks.&lt;/li>
+&lt;li>Notebook or terminal functionality is exposed to shared users / internet.&lt;/li>
+&lt;/ul>
+&lt;p>Quick checks:&lt;/p>
+&lt;div class="hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code">
+&lt;div>&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-bash" data-lang="bash">&lt;span class="line">&lt;span class="cl">python -m pip show marimo
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">python - &lt;span class="s">&amp;lt;&amp;lt;&amp;#39;PY&amp;#39;
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="s">import marimo
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="s">print(marimo.__version__)
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="s">PY&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">ss -lntp &lt;span class="p">|&lt;/span> rg &lt;span class="s1">&amp;#39;:2718|:8080|:80|:443&amp;#39;&lt;/span>&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;/div>&lt;div class="hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0">
+&lt;button
+class="hextra-code-copy-btn hx:group/copybtn hx:cursor-pointer hx:transition-all hx:active:opacity-50 hx:bg-primary-700/5 hx:border hx:border-black/5 hx:text-gray-600 hx:hover:text-gray-900 hx:rounded-md hx:p-1.5 hx:dark:bg-primary-300/10 hx:dark:border-white/10 hx:dark:text-gray-400 hx:dark:hover:text-gray-50"
+title="Copy code"
+aria-label="Copy code"
+data-copied-label="Copied!"
+>
+&lt;div class="hextra-copy-icon hx:group-[.copied]/copybtn:hidden hx:pointer-events-none hx:h-4 hx:w-4">&lt;/div>
+&lt;div class="hextra-success-icon hx:hidden hx:group-[.copied]/copybtn:block hx:pointer-events-none hx:h-4 hx:w-4">&lt;/div>
+&lt;/button>
+&lt;/div>
+&lt;/div>
+&lt;h2>Remediation strategy&lt;span class="hx:absolute hx:-mt-20" id="remediation-strategy">&lt;/span>
+&lt;a href="#remediation-strategy" class="subheading-anchor" aria-label="Permalink for this section">&lt;/a>&lt;/h2>&lt;ul>
+&lt;li>Upgrade immediately to &lt;code>marimo&amp;gt;=0.23.0&lt;/code>.&lt;/li>
+&lt;li>Place the service behind strong authentication and reverse-proxy policy.&lt;/li>
+&lt;li>Restrict network reachability (VPN / private subnet / IP allow-list).&lt;/li>
+&lt;li>Rotate credentials and secrets available to the marimo runtime if exposure
+was internet-facing.&lt;/li>
+&lt;/ul>
+&lt;h2>The prompt&lt;span class="hx:absolute hx:-mt-20" id="the-prompt">&lt;/span>
+&lt;a href="#the-prompt" class="subheading-anchor" aria-label="Permalink for this section">&lt;/a>&lt;/h2>&lt;div class="hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code">
+&lt;div>&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-markdown" data-lang="markdown">&lt;span class="line">&lt;span class="cl">You are remediating CVE-2026-39987 (Marimo pre-auth RCE) in this repository or
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">runtime image. Produce exactly one of:
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">1.&lt;/span> A reviewer-ready PR that upgrades marimo to a fixed version and adds basic
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> hardening controls.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">2.&lt;/span> TRIAGE.md if no safe patch path exists in this codebase.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">## Rules
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">-&lt;/span> Fix only CVE-2026-39987 scope.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">-&lt;/span> Prefer the smallest safe version bump to &lt;span class="sb">`&amp;gt;=0.23.0`&lt;/span>.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">-&lt;/span> Do not auto-merge.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">-&lt;/span> If internet-exposed runtime was vulnerable, include an incident-response
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> checklist in the PR body.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">## Steps
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">1.&lt;/span> Detect current marimo version from lockfiles + environment metadata.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">2.&lt;/span> If marimo is absent or already &lt;span class="sb">`&amp;gt;=0.23.0`&lt;/span>, stop with a short triage note.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">3.&lt;/span> Update dependency manifests and lockfiles to a fixed marimo version.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">4.&lt;/span> Search for marimo launch points and add a hardening note (auth + network
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> boundary) in ops docs or deployment manifest comments, without unrelated
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> refactors.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">5.&lt;/span> Run project tests/lint.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">6.&lt;/span> Output:
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">-&lt;/span> PR title: &lt;span class="sb">`fix(sec): remediate CVE-2026-39987 in marimo`&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">-&lt;/span> PR body must include: affected version, fixed version, test output summary,
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> and operator follow-ups (credential rotation if exposed).
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">## Stop conditions
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="gu">&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">-&lt;/span> Patch would require unsupported major stack migration.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">-&lt;/span> No lockfile / deterministic dependency mechanism exists.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">- Tests fail due to unrelated pre-existing failures.&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;/div>&lt;div class="hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0">
+&lt;button
+class="hextra-code-copy-btn hx:group/copybtn hx:cursor-pointer hx:transition-all hx:active:opacity-50 hx:bg-primary-700/5 hx:border hx:border-black/5 hx:text-gray-600 hx:hover:text-gray-900 hx:rounded-md hx:p-1.5 hx:dark:bg-primary-300/10 hx:dark:border-white/10 hx:dark:text-gray-400 hx:dark:hover:text-gray-50"
+title="Copy code"
+aria-label="Copy code"
+data-copied-label="Copied!"
+>
+&lt;div class="hextra-copy-icon hx:group-[.copied]/copybtn:hidden hx:pointer-events-none hx:h-4 hx:w-4">&lt;/div>
+&lt;div class="hextra-success-icon hx:hidden hx:group-[.copied]/copybtn:block hx:pointer-events-none hx:h-4 hx:w-4">&lt;/div>
+&lt;/button>
+&lt;/div>
+&lt;/div>
+&lt;h2>Verification — what the reviewer looks for&lt;span class="hx:absolute hx:-mt-20" id="verification--what-the-reviewer-looks-for">&lt;/span>
+&lt;a href="#verification--what-the-reviewer-looks-for" class="subheading-anchor" aria-label="Permalink for this section">&lt;/a>&lt;/h2>&lt;ul>
+&lt;li>Lockfile and manifest pin &lt;code>marimo&lt;/code> to &lt;code>&amp;gt;=0.23.0&lt;/code>.&lt;/li>
+&lt;li>No vulnerable marimo version remains in dependency tree.&lt;/li>
+&lt;li>Tests/lint are green or failures are clearly pre-existing.&lt;/li>
+&lt;li>PR includes runtime hardening follow-ups if service was internet-reachable.&lt;/li>
+&lt;/ul>
+&lt;h2>References&lt;span class="hx:absolute hx:-mt-20" id="references">&lt;/span>
+&lt;a href="#references" class="subheading-anchor" aria-label="Permalink for this section">&lt;/a>&lt;/h2>&lt;ul>
+&lt;li>NVD entry: &lt;a href="https://nvd.nist.gov/vuln/detail/CVE-2026-39987"target="_blank" rel="noopener">https://nvd.nist.gov/vuln/detail/CVE-2026-39987&lt;/a>&lt;/li>
+&lt;li>GHSA advisory: &lt;a href="https://github.com/marimo-team/marimo/security/advisories/GHSA-2679-6mx9-h9xc"target="_blank" rel="noopener">https://github.com/marimo-team/marimo/security/advisories/GHSA-2679-6mx9-h9xc&lt;/a>&lt;/li>
+&lt;li>Patch commit: &lt;a href="https://github.com/marimo-team/marimo/commit/c24d4806398f30be6b12acd6c60d1d7c68cfd12a"target="_blank" rel="noopener">https://github.com/marimo-team/marimo/commit/c24d4806398f30be6b12acd6c60d1d7c68cfd12a&lt;/a>&lt;/li>
+&lt;/ul></description></item></channel></rss>
