@@ -1,4 +1,12 @@
 {{/*
+  ---------- SEO: meta tags + structured data ----------
+  Comprehensive Open Graph / Twitter Card / JSON-LD output, with
+  per-page resolution rules. See `partials/custom/seo.html` for the
+  frontmatter contract and the fallback chain.
+*/}}
+{{ partial "custom/seo.html" . }}
+
+{{/*
   ---------- Hardening: no external resources, no install / translate prompts ----------
   These meta tags + the CSP below tell the browser:
     - Do not offer to translate this page (kills Chrome's translation banner).

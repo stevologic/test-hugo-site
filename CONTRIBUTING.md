@@ -11,6 +11,7 @@ fork-and-PR workflow we use to land changes.
 - [Contributing a new agent recipe](#contributing-a-new-agent-recipe)
 - [Contributing a prompt](#contributing-a-prompt)
 - [Navigation: how the menus, sidebars, and hubs scale](#navigation-how-the-menus-sidebars-and-hubs-scale)
+- [SEO and discoverability](#seo-and-discoverability)
 - [Style and conventions](#style-and-conventions)
 - [Review expectations](#review-expectations)
 - [Running the site locally](#running-the-site-locally)
@@ -348,6 +349,75 @@ The navigation contract is enforced by review — PRs that
 add per-recipe entries to `hugo.yaml` or hand-list recipes
 on hub pages will be asked to switch to the auto-discovery
 shortcodes.
+
+---
+
+## SEO and discoverability
+
+The site is built so contributors don't have to think about SEO —
+the [SEO partial](hugo-site/layouts/partials/custom/seo.html)
+emits Open Graph, Twitter Card, JSON-LD (Article, Organization,
+WebSite, BreadcrumbList), canonical URLs, and robots / theme
+meta on every page from page-level frontmatter, with sensible
+fallbacks to site-level defaults in `hugo.yaml`. Hugo's
+auto-generated `sitemap.xml` and the
+[robots.txt template](hugo-site/layouts/robots.txt) are wired
+to surface the new content to search engines and AI crawlers
+on the next deploy.
+
+What that means in practice:
+
+- **You only set `description:` in your page's frontmatter.**
+  Everything else (OG image, structured data, breadcrumbs,
+  canonical URL) flows from the page's location in the tree
+  and the site-level defaults.
+- **Tags are SEO content.** The `tags:` array doubles as a
+  `keywords` meta and as `article:tag` Open Graph properties
+  and as the JSON-LD `keywords` field. Pick tags that a
+  searcher would actually type.
+- **`description` is what shows in search results.** Aim for
+  one tight sentence, ≤160 characters. The partial truncates
+  cleanly past 297 characters but you should rarely need to
+  rely on that.
+- **Custom OG image per page is optional.** Set
+  `image: "/images/<your-card>.png"` (or `.svg`) in
+  frontmatter to override the site default
+  `static/images/og-card.svg` on a single page — useful for
+  CVE recipes or workflow pages that warrant their own card.
+- **Drafts and WIP** can opt out of indexing with
+  `noindex: true` in frontmatter — the partial emits the
+  matching `<meta name="robots" content="noindex,nofollow">`
+  and search engines will drop the page from their index.
+
+The full SEO frontmatter contract:
+
+```yaml
+---
+# Always set:
+title: "Page title"
+description: "One-sentence summary used for search snippets."
+
+# Recommended:
+tags: ["concrete", "searchable", "tags"]
+date: 2026-04-25            # used for `article:published_time`
+
+# Optional overrides:
+image: "/images/<page-card>.png"   # per-page OG image
+imageWidth: 1200
+imageHeight: 630
+keywords: ["explicit", "list"]      # overrides tags-as-keywords
+author: "Your Name"
+noindex: true                       # opt out of indexing entirely
+---
+```
+
+For brand-new top-level sections, also remember to:
+
+- Update the site's `seo.sameAs` list in `hugo.yaml` if a
+  new canonical URL (a project repo, a Mastodon, a
+  Bluesky) should be linked into the Organization JSON-LD.
+- Update `seo.defaultKeywords` if the new section
+  introduces topic vocabulary that isn't already there.
 
 ---
 

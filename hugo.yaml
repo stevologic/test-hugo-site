@@ -16,6 +16,18 @@ enableRobotsTXT: true
 enableGitInfo: true
 enableEmoji: true
 
+# ----------------------------------------------------------------------
+# Sitemap — Hugo auto-generates `sitemap.xml` at the site root using
+# these defaults. Per-page overrides via `sitemap` frontmatter.
+# `enableGitInfo: true` above means `<lastmod>` is the file's most
+# recent git commit time, which gives search engines an honest signal
+# of page freshness without anyone having to hand-maintain a date.
+# ----------------------------------------------------------------------
+sitemap:
+  changefreq: weekly
+  filename: sitemap.xml
+  priority: 0.7
+
 # Hextra is loaded as a Hugo Module (see go.mod).
 module:
   imports:
@@ -274,6 +286,42 @@ params:
     A curated, community-driven library of recipes that turn the AI assistants
     engineers already use — GitHub Copilot, Devin, Cursor, Codex, and
     Claude — into autonomous remediators.
+
+  # ----------------------------------------------------------------------
+  # SEO defaults — read by `partials/custom/seo.html`
+  # ----------------------------------------------------------------------
+  # Per-page frontmatter overrides any of these. The seo partial walks
+  # description -> summary -> site default for description, and
+  # `params.image` -> seo.defaultImage for the OG card image.
+  seo:
+    siteName: "security-recipes.ai"
+    author: "security-recipes.ai contributors"
+    twitter: ""                 # set to "@handle" once a social account exists
+    defaultImage: "images/og-card.svg"
+    defaultImageWidth: 1200
+    defaultImageHeight: 630
+    # `sameAs` feeds the Organization JSON-LD — list canonical
+    # social / repo URLs here so search engines can connect identities.
+    sameAs:
+      - "https://github.com/stevologic/agentic-remediation-recipes"
+    # Default keyword bag used on pages that declare neither `keywords`
+    # nor `tags`. Page-level `tags` always wins where present.
+    defaultKeywords:
+      - "agentic security"
+      - "AI security remediation"
+      - "AI coding agents"
+      - "vulnerability remediation"
+      - "CVE remediation"
+      - "AI agents"
+      - "GitHub Copilot"
+      - "Claude Code"
+      - "Cursor"
+      - "Devin"
+      - "Codex"
+      - "MCP servers"
+      - "SAST"
+      - "secure software supply chain"
+      - "OWASP Top 10"
 
   # Repository URL — dynamic.
   # Override in CI with HUGO_PARAMS_REPOURL=https://github.com/<owner>/<repo>

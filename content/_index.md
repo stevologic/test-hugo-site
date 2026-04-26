@@ -1,9 +1,29 @@
 ---
 title: security-recipes.ai
 description: >
-  A curated, community-driven library of recipes for turning the AI assistants
-  engineers already use — GitHub Copilot, Devin, Cursor, Codex, and
-  Claude — into autonomous remediators that close risk instead of logging it.
+  Community-driven recipes that turn AI coding agents — GitHub
+  Copilot, Claude, Cursor, Codex, and Devin — into reviewer-gated
+  security remediators. CVE fix playbooks, prompt library, MCP
+  connectors, and reference workflows for SDE, vulnerable
+  dependencies, SAST, base images, and more.
+keywords:
+  - "agentic security remediation"
+  - "AI security agents"
+  - "AI coding agents"
+  - "CVE remediation"
+  - "vulnerability remediation"
+  - "GitHub Copilot security"
+  - "Claude Code security"
+  - "Cursor security"
+  - "Devin security"
+  - "Codex security"
+  - "MCP servers"
+  - "OWASP Top 10 2026"
+  - "SAST autofix"
+  - "supply chain security"
+  - "Log4Shell"
+  - "xz-utils backdoor"
+  - "secure software supply chain"
 toc: false
 ---
 
