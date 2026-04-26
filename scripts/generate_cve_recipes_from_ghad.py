@@ -19,118 +19,113 @@ SEVERITIES = {"high", "critical"}
 
 
 def slugify(value: str) -> str:
-    value = value.lower()
-    value = re.sub(r"[^a-z0-9]+", "-", value)
-    return value.strip("-")[:48] or "advisory"
-
-
-def iter_json_files(root: Path):
-    yield from root.rglob("*.json")
+    value = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
+    return value[:48] or "advisory"
 
 
 def has_fix(affected: list[dict]) -> bool:
-    for item in affected:
-        for rng in item.get("ranges", []):
-            for event in rng.get("events", []):
-                if "fixed" in event:
-                    return True
-    return False
+    return any(
+        "fixed" in event
+        for item in affected
+        for rng in item.get("ranges", [])
+        for event in rng.get("events", [])
+    )
 
 
-def first_fixed_versions(affected: list[dict]) -> list[str]:
-    out: list[str] = []
-    for item in affected:
-        for rng in item.get("ranges", []):
-            for event in rng.get("events", []):
-                fixed = event.get("fixed")
-                if fixed:
-                    out.append(fixed)
-    return sorted(set(out))
+def fixed_versions(affected: list[dict]) -> list[str]:
+    values = {
+        event["fixed"]
+        for item in affected
+        for rng in item.get("ranges", [])
+        for event in rng.get("events", [])
+        if "fixed" in event
+    }
+    return sorted(values)
 
 
 def affected_ranges(affected: list[dict]) -> list[str]:
-    out: list[str] = []
+    rows: list[str] = []
     for item in affected:
         pkg = item.get("package", {})
-        pkg_name = pkg.get("name", "unknown-package")
-        ecosystem = pkg.get("ecosystem", "unknown")
-        versions = item.get("versions", [])
-        if versions:
-            out.append(f"- **{pkg_name} ({ecosystem})**: {', '.join(versions[:8])}")
-            continue
+        name = pkg.get("name", "unknown-package")
+        eco = pkg.get("ecosystem", "unknown")
         for rng in item.get("ranges", []):
-            pieces = []
+            introduced = None
+            fixed = None
             for event in rng.get("events", []):
-                if "introduced" in event:
-                    pieces.append(f">= {event['introduced']}")
-                if "fixed" in event:
-                    pieces.append(f"< {event['fixed']}")
-            if pieces:
-                out.append(f"- **{pkg_name} ({ecosystem})**: {' and '.join(pieces)}")
-    return out
+                introduced = event.get("introduced", introduced)
+                fixed = event.get("fixed", fixed)
+            if introduced is not None and fixed:
+                rows.append(f"- **{name} ({eco})**: `>={introduced}, <{fixed}`")
+            elif fixed:
+                rows.append(f"- **{name} ({eco})**: `<{fixed}`")
+    return rows
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--advisory-root", required=True, type=Path)
-    ap.add_argument("--output-root", required=True, type=Path)
-    ap.add_argument("--author", default="Codex")
-    ap.add_argument("--team", default="Security")
-    args = ap.parse_args()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--advisory-root", required=True, type=Path)
+    parser.add_argument("--output-root", required=True, type=Path)
+    parser.add_argument("--author", default="Codex")
+    parser.add_argument("--team", default="Security")
+    args = parser.parse_args()
 
     args.output_root.mkdir(parents=True, exist_ok=True)
 
+    today = dt.date.today().isoformat()
     generated = 0
     skipped = 0
-    today = dt.date.today().isoformat()
 
-    for file_path in iter_json_files(args.advisory_root):
+    for json_path in args.advisory_root.rglob("*.json"):
         try:
-            doc = json.loads(file_path.read_text(encoding="utf-8"))
+            advisory = json.loads(json_path.read_text(encoding="utf-8"))
         except Exception:
             skipped += 1
             continue
 
-        sev = (doc.get("database_specific", {}).get("severity") or "").lower()
-        if sev not in SEVERITIES:
+        severity = (advisory.get("database_specific", {}).get("severity") or "").lower()
+        if severity not in SEVERITIES:
             continue
 
-        aliases = doc.get("aliases", [])
+        aliases = advisory.get("aliases", [])
         cves = [a for a in aliases if a.startswith("CVE-")]
         if not cves:
             continue
 
-        affected = doc.get("affected", [])
+        affected = advisory.get("affected", [])
         if not has_fix(affected):
             continue
 
         cve = cves[0]
-        summary = (doc.get("summary") or "").strip() or f"{cve} security advisory"
-        details = (doc.get("details") or "").strip().replace("\n\n", "\n")
-        if len(details) > 600:
-            details = details[:600].rsplit(" ", 1)[0] + "…"
+        summary = (advisory.get("summary") or f"{cve} security advisory").strip()
+        details = (advisory.get("details") or summary).strip().replace("\n\n", "\n")
+        if len(details) > 700:
+            details = details[:700].rsplit(" ", 1)[0] + "…"
 
-        ecosystem = "unknown"
+        eco = "unknown"
         for item in affected:
-            eco = item.get("package", {}).get("ecosystem")
-            if eco:
-                ecosystem = eco.lower()
+            pkg_eco = item.get("package", {}).get("ecosystem")
+            if pkg_eco:
+                eco = pkg_eco.lower()
                 break
 
-        fixed_versions = first_fixed_versions(affected)
-        fixed_str = ", ".join(fixed_versions[:5]) if fixed_versions else "see advisory"
+        fixed = fixed_versions(affected)
+        fixed_str = ", ".join(fixed[:6]) if fixed else "see advisory"
+        ranges = affected_ranges(affected)
+        if not ranges:
+            continue
+
+        disclosed = (advisory.get("published") or "")[:10] or today
+        ghsa_id = advisory.get("id", "unknown")
         slug = slugify(summary)
-        out_name = f"{cve.lower()}-{slug}.md"
-        out_path = args.output_root / out_name
+        path = args.output_root / f"{cve.lower()}-{slug}.md"
 
-        disclosed = doc.get("published", "")[:10] or today
-        intro = details or summary
-
+        safe_summary = summary.replace('"', "'")
         lines = [
             "---",
-            f'title: "{cve} — {summary.replace("\"", "\\\"")}"',
+            f'title: "{cve} — {safe_summary}"',
             f'linkTitle: "{cve}"',
-            f'description: "{summary.replace("\"", "\\\"")}"',
+            f'description: "{safe_summary}"',
             'tool: "general"',
             f'author: "{args.author}"',
             f'team: "{args.team}"',
@@ -140,37 +135,59 @@ def main() -> int:
             f'weight: {1000 + generated}',
             f'date: {today}',
             f'cve: "{cve}"',
-            f'aliases: ["{summary.replace("\"", "\\\"")}"]',
+            f'aliases: ["{safe_summary}"]',
             'kev: false',
-            f'severity: "{sev}"',
-            f'ecosystem: "{ecosystem}"',
+            f'severity: "{severity}"',
+            f'ecosystem: "{eco}"',
             f'disclosed: "{disclosed}"',
             "---",
             "",
-            intro,
+            details,
             "",
             "## Affected versions",
             "",
-            *affected_ranges(affected)[:10],
+            *ranges,
+            "",
+            "## Indicator-of-exposure",
+            "",
+            "You are exposed when any deployable target resolves one of the",
+            "affected ranges above in direct or transitive dependencies.",
             "",
             "## Remediation strategy",
             "",
-            f"Upgrade to a patched release. Minimum observed patched version(s): `{fixed_str}`.",
+            f"Upgrade to a patched release (minimum observed fixed version(s): `{fixed_str}`).",
+            "Regenerate lockfiles, rebuild artifacts, and redeploy affected services.",
             "",
             "## The prompt",
             "",
             "~~~markdown",
             f"You are remediating {cve}.",
             "",
-            "1) Detect vulnerable versions in dependency manifests and lock files.",
+            "1) Detect vulnerable dependency versions in manifests and lockfiles.",
             f"2) Upgrade to patched versions (minimum: {fixed_str}).",
-            "3) Run tests and dependency scans.",
-            "4) If no safe upgrade path exists, produce TRIAGE.md with blockers.",
+            "3) Run build/tests and dependency scan verification.",
+            "4) If no safe upgrade path exists, output TRIAGE.md with blockers and containment.",
             "~~~",
+            "",
+            "## Verification — what the reviewer looks for",
+            "",
+            "- No vulnerable versions remain in resolved dependencies.",
+            "- Updated lock/state files are committed.",
+            "- CI/build/test checks pass.",
+            "",
+            "## Watch for",
+            "",
+            "- Hidden transitive copies of the vulnerable package.",
+            "- Environment-specific lockfile drift.",
+            "",
+            "## Sources",
+            "",
+            f"- GitHub Advisory: `{ghsa_id}`",
+            f"- CVE: `{cve}`",
             "",
         ]
 
-        out_path.write_text("\n".join(lines), encoding="utf-8")
+        path.write_text("\n".join(lines), encoding="utf-8")
         generated += 1
 
     print(f"generated={generated} skipped={skipped} output={args.output_root}")

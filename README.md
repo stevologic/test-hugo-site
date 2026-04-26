@@ -121,7 +121,9 @@ bulk-generate draft CVE recipe pages (High/Critical entries with CVE IDs
 and a fixed version event) using:
 
 ```bash
-python scripts/generate_cve_recipes_from_ghad.py   --advisory-root /path/to/advisory-database/advisories/github-reviewed   --output-root content/prompt-library/cve/generated
+python scripts/generate_cve_recipes_from_ghad.py \
+  --advisory-root /path/to/advisory-database/advisories/github-reviewed \
+  --output-root content/prompt-library/cve/generated
 ```
 
 The generator intentionally emits **draft** pages so maintainers can
