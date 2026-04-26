@@ -1,0 +1,31 @@
+{
+  "advisory_root": "data/ghad-snapshot",
+  "assessment": [
+    {
+      "cve": "CVE-2026-33116",
+      "decision": "generated",
+      "ghsa": "GHSA-37gx-xxp4-5rgx",
+      "output": "/tmp/cve-generated-check/cve-2026-33116-denial-of-service-in-system-security-cryptograph.md",
+      "path": "data/ghad-snapshot/GHSA-37gx-xxp4-5rgx.json",
+      "severity": "high"
+    },
+    {
+      "cve": "CVE-2025-60455",
+      "decision": "generated",
+      "ghsa": "GHSA-7xcv-9j6c-2fmc",
+      "output": "/tmp/cve-generated-check/cve-2025-60455-modular-allows-for-unsafe-deserialization-in-max.md",
+      "path": "data/ghad-snapshot/GHSA-7xcv-9j6c-2fmc.json",
+      "severity": "critical"
+    }
+  ],
+  "generated_at": "2026-04-26T20:32:46Z",
+  "output_root": "/tmp/cve-generated-check",
+  "totals": {
+    "generated": 2,
+    "high_critical_assessed": 2,
+    "skipped_no_cve": 0,
+    "skipped_no_fix": 0,
+    "skipped_no_ranges": 0,
+    "skipped_parse_error": 0
+  }
+}
